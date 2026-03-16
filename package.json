@@ -1,0 +1,11 @@
+{
+  "name": "mcp-smart-contract-audit-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A zero-dependency MCP server demo for smart contract audit workflows.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "demo": "node scripts/demo-client.js"
+  }
+}
