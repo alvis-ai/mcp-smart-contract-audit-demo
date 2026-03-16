@@ -152,13 +152,3 @@ export function generateChecklist(projectType) {
 
   return [...base, ...(domain[projectType] || [])];
 }
-
-export function resumeAlignment(projectType) {
-  const mapped = {
-    launchpad: ["LaunchPad / IDO", "白名单签名", "Claim / Refund", "权限控制"],
-    nft: ["NFT Marketplace", "Mint / Auction", "白名单活动", "Gas 优化"],
-    staking: ["Staking", "奖励分发", "紧急提取", "事件监听"],
-    lending: ["Lending", "抵押率与清算", "资产安全", "后端索引"]
-  };
-  return mapped[projectType] || ["权限控制", "重入检查", "事件日志", "知识库驱动审计"];
-}

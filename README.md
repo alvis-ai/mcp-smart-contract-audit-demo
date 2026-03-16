@@ -3,17 +3,9 @@
 这个 demo 用一个零依赖的 Node.js MCP Server 演示如何把下面几类能力接入到实际项目中：
 
 - `MCP tools`：把合约审计、知识库检索、审计清单生成暴露成标准工具
-- `MCP resources`：把审计规范、简历方向、领域风险模型做成可读取上下文
+- `MCP resources`：把审计规范、领域风险模型做成可读取上下文
 - `MCP prompts`：把高频审计流程沉淀成可复用的“Skill-like”工作流模板
 - `Knowledge Base`：围绕 LaunchPad、NFT、Staking、Lending、白名单签名、权限控制、Gas 优化建立本地知识库
-
-## 这个 demo 对应简历里的哪些点
-
-- LaunchPad / IDO 审计思路
-- NFT Marketplace 风险点
-- Staking / Lending 业务理解
-- 权限控制、白名单签名、重入、低级调用、`tx.origin` 等安全意识
-- 通过 `MCP + 知识库 + Prompt 工作流` 提升研发和审计效率
 
 ## 项目结构
 
@@ -23,8 +15,7 @@ mcp-smart-contract-audit-demo/
 │   ├── audit-checklist-general.md
 │   ├── launchpad-risk-model.md
 │   ├── nft-marketplace-risk-model.md
-│   ├── staking-lending-risk-model.md
-│   └── resume-focus-areas.md
+│   └── staking-lending-risk-model.md
 ├── samples/
 │   ├── PowerLaunchPad.sol
 │   └── TreasureHunt.sol
@@ -41,16 +32,22 @@ mcp-smart-contract-audit-demo/
 ## 快速运行
 
 ```bash
-cd /Users/aicong/Documents/Alvis\ 简历/mcp-smart-contract-audit-demo
+cd mcp-smart-contract-audit-demo
 node src/server.js
 ```
 
 另一个终端执行演示客户端：
 
 ```bash
-cd /Users/aicong/Documents/Alvis\ 简历/mcp-smart-contract-audit-demo
+cd mcp-smart-contract-audit-demo
 node scripts/demo-client.js
 ```
+
+## 项目文档
+
+- [CHANGELOG.md](./CHANGELOG.md)
+- [docs/example-requests.md](./docs/example-requests.md)
+- [LICENSE](./LICENSE)
 
 ## 暴露的 MCP 能力
 
@@ -68,12 +65,8 @@ node scripts/demo-client.js
 4. `generate_audit_checklist`
    基于项目类型生成领域审计清单。
 
-5. `resume_alignment_report`
-   输出这个 demo 和简历中智能合约审计能力的对应关系，方便面试表达。
-
 ### Resources
 
-- `kb://resume/focus-areas`
 - `kb://audit/general`
 - `kb://audit/launchpad`
 - `kb://audit/nft-marketplace`

@@ -2,8 +2,7 @@ import readline from "node:readline";
 import {
   auditCode,
   auditFile,
-  generateChecklist,
-  resumeAlignment
+  generateChecklist
 } from "./analyzer.js";
 import {
   listResources,
@@ -38,7 +37,7 @@ const tools = [
   {
     name: "audit_contract_code",
     title: "Audit Solidity Code",
-    description: "Audit Solidity code using resume-aligned static rules.",
+    description: "Audit Solidity code using domain-focused static rules.",
     inputSchema: {
       type: "object",
       properties: {
@@ -76,22 +75,6 @@ const tools = [
           type: "string",
           enum: ["general", "launchpad", "nft", "staking", "lending"],
           description: "Audit domain."
-        }
-      },
-      required: ["projectType"]
-    }
-  },
-  {
-    name: "resume_alignment_report",
-    title: "Resume Alignment Report",
-    description: "Show how this audit workflow maps to resume topics for interview storytelling.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projectType: {
-          type: "string",
-          enum: ["general", "launchpad", "nft", "staking", "lending"],
-          description: "Project type used for mapping."
         }
       },
       required: ["projectType"]
@@ -243,23 +226,6 @@ function handleToolCall(name, args = {}) {
     const checklist = generateChecklist(args.projectType);
     const text = checklist.map((item, index) => `${index + 1}. ${item}`).join("\n");
     return textResult(text, { projectType: args.projectType, checklist });
-  }
-
-  if (name === "resume_alignment_report") {
-    const points = resumeAlignment(args.projectType);
-    const report = {
-      projectType: args.projectType,
-      mappedHighlights: points,
-      talkingPoint: `This demo shows ${args.projectType} audit understanding through MCP tools, local knowledge resources and reusable prompt workflows.`
-    };
-    const text = [
-      `Project type: ${report.projectType}`,
-      "Resume-aligned highlights:",
-      ...report.mappedHighlights.map((item) => `- ${item}`),
-      "",
-      report.talkingPoint
-    ].join("\n");
-    return textResult(text, report);
   }
 
   return null;

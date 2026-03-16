@@ -7,14 +7,6 @@ const projectRoot = path.resolve(__dirname, "..");
 
 const resourceRegistry = [
   {
-    uri: "kb://resume/focus-areas",
-    name: "resume-focus-areas",
-    title: "Resume Focus Areas",
-    description: "Resume-aligned smart contract domains and security themes.",
-    mimeType: "text/markdown",
-    filePath: path.join(projectRoot, "kb", "resume-focus-areas.md")
-  },
-  {
     uri: "kb://audit/general",
     name: "audit-general",
     title: "General Audit Checklist",
