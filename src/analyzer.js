@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getProjectRoot } from "./knowledge-base.js";
+import { fetchVerifiedContractSource } from "./verified-source.js";
 
+// Rule engine kept intentionally simple: each rule is a string/regex heuristic
+// that can run without AST tooling. This keeps the demo lightweight while still
+// making the audit flow easy to wire into MCP transports.
 const rules = [
   {
     id: "AUTH-TXORIGIN",
@@ -61,6 +65,8 @@ const rules = [
   }
 ];
 
+// Domain auto-detection is best-effort only. It exists to choose a more useful
+// checklist / finding context when the caller does not provide a contractType.
 function detectContractType(code, fallbackType = "") {
   if (fallbackType) {
     return fallbackType;
@@ -81,6 +87,8 @@ function detectContractType(code, fallbackType = "") {
   return "general";
 }
 
+// The summary is short by design because IDE integrations surface it first and
+// full findings are rendered below.
 function makeSummary(contractType, findings) {
   const severeCount = findings.filter((item) => item.severity === "critical" || item.severity === "high").length;
   if (findings.length === 0) {
@@ -90,6 +98,8 @@ function makeSummary(contractType, findings) {
 }
 
 export function auditCode(code, options = {}) {
+  // Evaluate every rule against the same source blob, then normalize to a
+  // compact structure that works for CLI, custom MCP and SDK MCP outputs.
   const contractType = detectContractType(code, options.contractType);
   const findings = rules
     .filter((rule) => rule.test(code, contractType))
@@ -109,6 +119,8 @@ export function auditCode(code, options = {}) {
 }
 
 export function auditFile(relativePath, options = {}) {
+  // Constrain file access to the project root so MCP callers cannot use the
+  // tool to read arbitrary files on the machine.
   const safePath = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
   const fullPath = path.join(getProjectRoot(), safePath);
   if (!fullPath.startsWith(getProjectRoot())) {
@@ -122,7 +134,20 @@ export function auditFile(relativePath, options = {}) {
   };
 }
 
+export async function auditAddress(address, options = {}) {
+  // Address-based audit is a two-stage pipeline:
+  // 1. Resolve verified source from explorers / Sourcify / RPC proxy hints
+  // 2. Reuse the same static rule engine used for local files and raw code
+  const contract = await fetchVerifiedContractSource(address, options);
+  return {
+    ...contract,
+    ...auditCode(contract.code, options)
+  };
+}
+
 export function generateChecklist(projectType) {
+  // Checklist generation is deliberately opinionated: the base section stays
+  // stable while domain sections add review items for common protocol classes.
   const base = [
     "Confirm admin-only functions use explicit access control.",
     "Review signature flows for nonce, deadline and replay protection.",

@@ -1,11 +1,25 @@
 {
   "name": "mcp-smart-contract-audit-demo",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "A zero-dependency MCP server demo for smart contract audit workflows.",
+  "description": "An MCP server demo for smart contract audit workflows, with custom and official SDK transports.",
   "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "express": "^5.2.1",
+    "zod": "^4.3.6"
+  },
+  "bin": {
+    "smart-contract-audit-mcp": "./bin/smart-contract-audit-mcp.js"
+  },
   "scripts": {
     "start": "node src/server.js",
-    "demo": "node scripts/demo-client.js"
+    "start:http": "node src/http-server.js",
+    "start:sdk": "node src/sdk-stdio-server.js",
+    "start:sdk:http": "node src/sdk-http-server.js",
+    "start:bin": "node bin/smart-contract-audit-mcp.js",
+    "demo": "node scripts/demo-client.js",
+    "audit:address": "node scripts/audit-address.js",
+    "validate": "node scripts/validate.js"
   }
 }

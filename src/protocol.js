@@ -1,3 +1,6 @@
+// These helpers keep the custom stdio / HTTP implementation close to JSON-RPC
+// without pulling in the official SDK. They are still useful for tests and as
+// a readable baseline next to the SDK-based implementation.
 export const PROTOCOL_VERSION = "2025-06-18";
 
 export function success(id, result) {

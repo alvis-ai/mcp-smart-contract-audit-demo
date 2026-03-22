@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
+// Resources are exposed twice:
+// 1. as MCP resources that callers can read directly
+// 2. as a tiny local search index used by search_audit_knowledge
 const resourceRegistry = [
   {
     uri: "kb://audit/general",
@@ -60,6 +63,8 @@ function loadText(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
 
+// Tokenization is intentionally naive but stable. The goal is not semantic
+// retrieval quality; the goal is deterministic local matching without deps.
 function tokenize(value) {
   return value
     .toLowerCase()
@@ -85,6 +90,8 @@ export function readResource(uri) {
 }
 
 export function searchKnowledge(query, topic = "") {
+  // Rank KB files by simple term overlap. If nothing matches, return a small
+  // fallback set so the caller still gets useful audit context.
   const queryTerms = tokenize(`${query} ${topic}`);
   const ranked = resourceRegistry
     .filter((item) => item.uri.startsWith("kb://"))

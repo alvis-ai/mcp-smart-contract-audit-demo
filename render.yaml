@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: smart-contract-audit-mcp
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 3000
+      - key: MCP_HTTP_PATH
+        value: /mcp
+      - key: MCP_AUTH_TOKEN
+        generateValue: true
+

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
+// Demo client talks to the custom stdio server directly so repository users can
+// see the raw MCP JSON-RPC exchange without needing an IDE host.
 const child = spawn("node", ["src/server.js"], {
   cwd: projectRoot,
   stdio: ["pipe", "pipe", "inherit"]
@@ -62,6 +64,19 @@ async function main() {
     }
   });
   console.log("\n== audit_contract_file ==\n", JSON.stringify(audit, null, 2));
+
+  if (process.env.DEMO_CONTRACT_ADDRESS) {
+    const deployedAudit = await request("tools/call", {
+      name: "audit_contract_address",
+      arguments: {
+        address: process.env.DEMO_CONTRACT_ADDRESS,
+        ...(process.env.DEMO_CHAIN_ID ? { chainId: Number(process.env.DEMO_CHAIN_ID) } : {})
+      }
+    });
+    console.log("\n== audit_contract_address ==\n", JSON.stringify(deployedAudit, null, 2));
+  } else {
+    console.log("\n== audit_contract_address ==\n skipped (set DEMO_CONTRACT_ADDRESS to test deployed-contract auditing)");
+  }
 
   const kb = await request("tools/call", {
     name: "search_audit_knowledge",

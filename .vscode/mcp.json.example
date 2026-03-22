@@ -1,0 +1,27 @@
+{
+  "servers": {
+    "smart-contract-audit-local": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/bin/smart-contract-audit-mcp.js",
+        "--sdk"
+      ]
+    },
+    "smart-contract-audit-remote": {
+      "type": "http",
+      "url": "https://your-domain.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:auditMcpToken}"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "auditMcpToken",
+      "type": "promptString",
+      "description": "Bearer token for the remote smart contract audit MCP server",
+      "password": true
+    }
+  ]
+}
