@@ -345,6 +345,7 @@ auditForm.addEventListener("submit", async (event) => {
 refreshAuditsButton.addEventListener("click", () => loadAudits().catch((error) => alert(error.message)));
 
 auditAddressInput.setAttribute("name", "address");
+auditNetworkSelect.value = "";
 auditNetworkSelect.addEventListener("change", syncChainIdField);
 syncChainIdField();
 

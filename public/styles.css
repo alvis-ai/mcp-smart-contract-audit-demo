@@ -1,50 +1,72 @@
 :root {
   --bg: #f3efe7;
-  --panel: #fffaf1;
+  --panel: #fffbf4;
   --surface: #ffffff;
-  --ink: #1c1a18;
-  --muted: #6e675f;
-  --line: #d7cfc1;
+  --ink: #171513;
+  --muted: #6a6258;
+  --line: #ddd3c3;
   --accent: #0f766e;
-  --accent-soft: #d9f3ef;
+  --accent-soft: #def3ef;
   --danger: #8b1e3f;
-  --shadow: 0 20px 45px rgba(28, 26, 24, 0.08);
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  --shadow: 0 10px 26px rgba(28, 26, 24, 0.08);
+  font-family: "Avenir Next", "Segoe UI", "PingFang SC", sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
+  line-height: 1.45;
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 30%),
-    linear-gradient(180deg, #f6f0e6 0%, #f1eadf 100%);
+    radial-gradient(circle at 12% 8%, rgba(15, 118, 110, 0.12), transparent 28%),
+    radial-gradient(circle at 96% 14%, rgba(183, 137, 76, 0.09), transparent 24%),
+    linear-gradient(180deg, #f7f1e7 0%, #f2eadf 100%);
   color: var(--ink);
 }
 
 .shell {
   min-height: 100vh;
+  width: min(1680px, 100%);
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: 300px 1fr;
 }
 
 .sidebar {
   border-right: 1px solid var(--line);
-  background: rgba(255, 248, 238, 0.9);
+  background: rgba(255, 249, 239, 0.84);
   backdrop-filter: blur(16px);
-  padding: 24px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .main {
-  padding: 28px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
+}
+
+.main > .hero,
+.main > .content-grid,
+.main > .panel {
+  width: min(1280px, 100%);
+  margin-inline: auto;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .brand h1,
@@ -56,7 +78,7 @@ body {
 .engine-card h3,
 .section-head h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Iowan Old Style", Georgia, "Times New Roman", serif;
   letter-spacing: -0.03em;
 }
 
@@ -71,13 +93,14 @@ body {
 .engine-summary,
 .engine-issue p {
   color: var(--muted);
+  margin: 0;
 }
 
 .eyebrow {
-  margin: 0 0 8px;
+  margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.22em;
-  font-size: 11px;
+  letter-spacing: 0.18em;
+  font-size: 10px;
   color: var(--muted);
 }
 
@@ -85,43 +108,86 @@ body {
 .hero {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 24px;
+  border-radius: 16px;
   box-shadow: var(--shadow);
+  animation: fade-up 220ms ease-out both;
 }
 
 .hero {
-  padding: 28px;
+  padding: 18px;
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(300px, 460px);
-  gap: 24px;
-  align-items: start;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 520px);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.hero-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.hero-copy {
+  max-width: 64ch;
+}
+
+.hero-flow {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hero-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f6f2e9;
+  color: #5d544a;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+
+.hero-note {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.audit-form {
+  align-content: start;
 }
 
 .hero-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: flex-end;
   flex-wrap: wrap;
 }
 
 .content-grid {
   display: grid;
-  gap: 24px;
+  gap: 14px;
 }
 
 .content-grid-home {
-  grid-template-columns: minmax(0, 1.2fr) 360px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   align-items: start;
 }
 
 .side-stack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 14px;
 }
 
 .panel {
-  padding: 20px;
+  padding: 14px;
 }
 
 .panel-head,
@@ -130,15 +196,15 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 14px;
-  margin-bottom: 14px;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 10px;
 }
 
 .field span {
@@ -167,14 +233,14 @@ select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 12px 14px;
+  border-radius: 12px;
+  padding: 10px 12px;
   background: var(--surface);
   color: var(--ink);
 }
 
 textarea {
-  min-height: 420px;
+  min-height: 340px;
   resize: vertical;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 13px;
@@ -183,13 +249,14 @@ textarea {
 
 .button {
   border: none;
-  border-radius: 999px;
-  padding: 11px 16px;
+  border-radius: 12px;
+  padding: 9px 12px;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-weight: 600;
 }
 
 .button.primary {
@@ -213,8 +280,8 @@ textarea {
 
 .audit-form {
   display: grid;
-  grid-template-columns: 1fr 140px;
-  gap: 14px;
+  grid-template-columns: 1fr minmax(150px, 210px);
+  gap: 10px;
 }
 
 .span-2 {
@@ -228,7 +295,13 @@ textarea {
 .guide-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+
+.audit-list {
+  max-height: calc(100vh - 350px);
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .audit-card,
@@ -246,8 +319,8 @@ textarea {
   text-align: left;
   border: 1px solid var(--line);
   background: var(--surface);
-  border-radius: 18px;
-  padding: 14px;
+  border-radius: 14px;
+  padding: 12px;
 }
 
 .audit-card.active,
@@ -261,7 +334,6 @@ textarea {
 }
 
 .rule-card {
-  padding: 16px;
   cursor: pointer;
 }
 
@@ -277,15 +349,15 @@ textarea {
 
 .audit-sub {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 12px;
 }
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .summary-grid span,
@@ -293,19 +365,19 @@ textarea {
   display: block;
   color: var(--muted);
   font-size: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .value-note {
   display: block;
-  margin-top: 6px;
+  margin-top: 5px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 500;
 }
 
 .metric-card strong {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1.2;
 }
 
@@ -316,27 +388,27 @@ textarea {
 .rules-overview {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .rules-layout {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
-  gap: 22px;
+  gap: 14px;
   align-items: start;
 }
 
 .rules-sidebar-column {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   position: sticky;
-  top: 24px;
+  top: 18px;
 }
 
 .rule-list {
-  max-height: 880px;
+  max-height: 70vh;
   overflow: auto;
   padding-right: 4px;
 }
@@ -347,12 +419,12 @@ textarea {
 .engine-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   align-items: start;
 }
 
 .rule-card-header {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .rule-buttons,
@@ -360,7 +432,7 @@ textarea {
 .rule-actions,
 .chip-row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
@@ -391,11 +463,11 @@ textarea {
 }
 
 .rule-subline {
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .rule-patterns {
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .chip,
@@ -411,20 +483,20 @@ textarea {
 
 .chip,
 .guide-label {
-  padding: 6px 10px;
+  padding: 5px 9px;
   background: #f1ece2;
   color: #544d44;
 }
 
 .pattern-chip {
-  padding: 6px 10px;
+  padding: 5px 9px;
   background: #e8f5f3;
   color: #0d5c55;
 }
 
 .badge {
-  min-width: 74px;
-  padding: 6px 10px;
+  min-width: 72px;
+  padding: 5px 9px;
   background: #e8f5f3;
   color: #0d5c55;
   text-transform: uppercase;
@@ -438,43 +510,34 @@ textarea {
 .rule-workbench {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .rule-focus {
-  padding: 18px;
   display: flex;
   justify-content: space-between;
-  gap: 18px;
+  gap: 12px;
   align-items: flex-start;
-}
-
-.rule-editor-shell {
-  padding: 18px;
 }
 
 .rule-editor-head {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
   align-items: flex-start;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .rule-editor-head p,
 .engine-card p,
 .engine-issue p {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
 }
 
 .rule-guide {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.guide-card {
-  padding: 16px;
+  gap: 10px;
 }
 
 .guide-label {
@@ -491,24 +554,44 @@ textarea {
 
 .engine-section,
 .findings-section {
-  margin-top: 18px;
-}
-
-.engine-card {
-  padding: 16px;
+  margin-top: 12px;
 }
 
 .engine-issues {
-  margin-top: 14px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+
+.result-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fffdf9;
 }
 
 .raw-box pre {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 1280px) {
@@ -529,6 +612,12 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .main > .hero,
+  .main > .content-grid,
+  .main > .panel {
+    width: 100%;
+  }
+
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
@@ -544,10 +633,6 @@ textarea {
     position: static;
   }
 
-  .rule-list {
-    max-height: none;
-  }
-
   .rule-focus,
   .rule-editor-head,
   .hero-actions {
@@ -560,5 +645,14 @@ textarea {
 
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .audit-list,
+  .rule-list {
+    max-height: none;
+  }
+
+  .hero-flow {
+    margin-top: 4px;
   }
 }

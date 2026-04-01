@@ -37,10 +37,16 @@
 
       <main class="main">
         <section class="hero">
-          <div>
+          <div class="hero-intro">
             <p class="eyebrow">Audit Operations</p>
             <h2>线上合约审计</h2>
-            <p>输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入第三方字节码分析引擎。</p>
+            <p class="hero-copy">输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入第三方字节码分析引擎。</p>
+            <div class="hero-flow">
+              <span class="hero-step">01 Source/Bytecode</span>
+              <span class="hero-step">02 Local Rules</span>
+              <span class="hero-step">03 External Engine</span>
+            </div>
+            <p class="hero-note">源码优先，字节码兜底；本地规则与外部引擎并行给出证据。</p>
           </div>
           <form id="audit-form" class="audit-form">
             <label class="field span-2">
