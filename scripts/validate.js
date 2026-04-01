@@ -11,11 +11,22 @@ const projectRoot = path.resolve(__dirname, "..");
 // transports so CI catches regressions in either integration surface.
 const filesToCheck = [
   "bin/smart-contract-audit-mcp.js",
+  "public/app.js",
+  "public/client.js",
+  "public/rules.js",
   "scripts/audit-address.js",
   "scripts/demo-client.js",
   "src/analyzer.js",
+  "src/audit-queue.js",
+  "src/audit-store.js",
+  "src/audit-worker.js",
+  "src/dashboard-api.js",
+  "src/external-analyzers.js",
   "src/http-server.js",
+  "src/knowledge-base.js",
   "src/mcp-service.js",
+  "src/protocol.js",
+  "src/rule-store.js",
   "src/sdk-http-server.js",
   "src/sdk-server.js",
   "src/sdk-shared.js",
@@ -57,6 +68,173 @@ function runCommand(args, options = {}) {
 async function checkSyntax() {
   for (const file of filesToCheck) {
     await runCommand(["--check", file]);
+  }
+}
+
+async function validateRuleStore() {
+  const { getRules, createRule, updateRule, deleteRule } = await import(`../src/rule-store.js?rules=${Date.now()}`);
+  const before = await getRules();
+  const created = await createRule({
+    title: "Validation Rule",
+    enabled: true,
+    severity: "low",
+    rationale: "Validation-only rule.",
+    recommendation: "No action.",
+    contractTypes: [],
+    allPatterns: [{ type: "includes", value: "validation-marker" }],
+    anyPatterns: [],
+    nonePatterns: []
+  });
+
+  if (!(await getRules()).some((rule) => rule.id === created.id)) {
+    throw new Error("Rule store createRule did not persist the new rule.");
+  }
+
+  await updateRule(created.id, {
+    ...created,
+    title: "Validation Rule Updated"
+  });
+
+  const updated = (await getRules()).find((rule) => rule.id === created.id);
+  if (updated?.title !== "Validation Rule Updated") {
+    throw new Error("Rule store updateRule did not persist the updated title.");
+  }
+
+  await deleteRule(created.id);
+  const after = await getRules();
+  if (after.some((rule) => rule.id === created.id)) {
+    throw new Error("Rule store deleteRule did not remove the rule.");
+  }
+
+  if (before.length !== after.length) {
+    throw new Error("Rule store did not return to the original rule count after validation.");
+  }
+}
+
+async function validateAuditStore() {
+  const auditStore = await import(`../src/audit-store.js?audit=${Date.now()}`);
+  const created = await auditStore.createAuditJob({
+    inputType: "address",
+    target: "0x0000000000000000000000000000000000000001",
+    chainId: 1,
+    contractType: "general"
+  });
+
+  if (created.status !== "queued") {
+    throw new Error(`Expected created audit job status to be queued, got ${created.status}.`);
+  }
+
+  const workerId = `validate-worker-${Date.now()}`;
+  await auditStore.registerWorker({
+    workerId,
+    pid: process.pid,
+    concurrency: 1,
+    status: "idle"
+  });
+
+  const running = await auditStore.claimNextQueuedJob(workerId, 30000);
+  if (running?.status !== "running") {
+    throw new Error("claimNextQueuedJob did not persist running status.");
+  }
+
+  await auditStore.heartbeatRunningJob(created.id, workerId, 30000);
+
+  const retried = await auditStore.requeueAuditJob(created.id, workerId, "retry me", 0);
+  if (retried?.status !== "queued") {
+    throw new Error("requeueAuditJob did not move the job back to queued.");
+  }
+
+  const runningAgain = await auditStore.claimNextQueuedJob(workerId, 30000);
+  if (runningAgain?.status !== "running") {
+    throw new Error("claimNextQueuedJob did not re-claim the queued job.");
+  }
+
+  const succeeded = await auditStore.markAuditJobSucceeded(created.id, workerId, {
+    summary: "Validation summary",
+    analysisMode: "source-only",
+    findings: []
+  });
+
+  if (succeeded?.status !== "succeeded") {
+    throw new Error("markAuditJobSucceeded did not persist succeeded status.");
+  }
+
+  if (succeeded?.result?.summary !== "Validation summary") {
+    throw new Error("markAuditJobSucceeded did not store result JSON.");
+  }
+
+  await auditStore.unregisterWorker(workerId);
+}
+
+async function validateAddressAuditWithBytecodeFallback() {
+  const originalFetch = globalThis.fetch;
+  const originalRpcUrls = process.env.AUDIT_RPC_URLS;
+  const originalMythrilMode = process.env.AUDIT_MYTHRIL_MODE;
+  const targetAddress = "0x1234567890abcdef1234567890abcdef12345678";
+
+  process.env.AUDIT_RPC_URLS = "1=https://rpc.example";
+  process.env.AUDIT_MYTHRIL_MODE = "off";
+
+  globalThis.fetch = async (url, options = {}) => {
+    const asString = String(url);
+
+    if (asString.startsWith("https://repo.sourcify.dev/")) {
+      return new Response("not found", { status: 404 });
+    }
+
+    if (asString === "https://rpc.example") {
+      const request = JSON.parse(options.body);
+      if (request.method === "eth_getCode") {
+        return new Response(JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: "0x60006000556001600055"
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      return new Response(JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: "0x"
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  try {
+    const { auditAddress } = await import(`../src/analyzer.js?bytecode=${Date.now()}`);
+    const result = await auditAddress(targetAddress, { chainId: 1 });
+
+    if (result.analysisMode !== "bytecode-only") {
+      throw new Error(`Expected bytecode-only analysis mode, got ${result.analysisMode}.`);
+    }
+
+    if (result.bytecodeSize <= 0) {
+      throw new Error("Expected bytecode-only audit to include bytecodeSize.");
+    }
+
+    if (!Array.isArray(result.externalAnalyses) || result.externalAnalyses.length === 0) {
+      throw new Error("Expected bytecode-only audit to include externalAnalyses.");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (typeof originalRpcUrls === "undefined") {
+      delete process.env.AUDIT_RPC_URLS;
+    } else {
+      process.env.AUDIT_RPC_URLS = originalRpcUrls;
+    }
+    if (typeof originalMythrilMode === "undefined") {
+      delete process.env.AUDIT_MYTHRIL_MODE;
+    } else {
+      process.env.AUDIT_MYTHRIL_MODE = originalMythrilMode;
+    }
   }
 }
 
@@ -448,6 +626,9 @@ async function validateRpcProxyFallback() {
 
 async function main() {
   await checkSyntax();
+  await validateRuleStore();
+  await validateAuditStore();
+  await validateAddressAuditWithBytecodeFallback();
   await validateCustomRpc();
   await validateSdkStdio();
   await validateExplorerFallback();

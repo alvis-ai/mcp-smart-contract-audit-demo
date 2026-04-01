@@ -45,10 +45,11 @@ function formatFindings(result) {
     `Contract: ${result.contractName}`,
     `Compiler: ${result.compilerVersion}`,
     `Match: ${result.matchType}`,
+    `Analysis mode: ${result.analysisMode || "source-only"}`,
     `Contract type: ${result.contractType}`,
     `Summary: ${result.summary}`,
     "",
-    "Findings:"
+    "Local Findings:"
   ];
 
   if (result.findings.length === 0) {
@@ -68,6 +69,21 @@ function formatFindings(result) {
 
   if (result.missingSourceFiles?.length) {
     lines.push(`Missing source files: ${result.missingSourceFiles.join(", ")}`);
+  }
+
+  if (Array.isArray(result.externalAnalyses) && result.externalAnalyses.length > 0) {
+    lines.push("");
+    lines.push("External Engines:");
+    for (const analysis of result.externalAnalyses) {
+      lines.push(`- ${analysis.engine} (${analysis.driver || "n/a"}): ${analysis.summary}`);
+      if (Array.isArray(analysis.issues) && analysis.issues.length > 0) {
+        for (const issue of analysis.issues) {
+          lines.push(`  - [${String(issue.severity || "info").toUpperCase()}] ${issue.title}`);
+        }
+      } else {
+        lines.push("  - No issues reported.");
+      }
+    }
   }
 
   return lines.join("\n");

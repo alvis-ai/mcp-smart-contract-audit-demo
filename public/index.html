@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Contract Audit Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">MCP Audit Console</p>
+          <h1>链上审计台</h1>
+          <p class="brand-copy">输入地址直接发起链上审计，优先拉取已验证源码，同时支持接入外部字节码分析引擎。</p>
+        </div>
+
+        <section class="panel token-panel">
+          <div class="panel-head">
+            <h2>API Token</h2>
+          </div>
+          <label class="field">
+            <span>Bearer Token</span>
+            <input id="token-input" type="password" placeholder="可选，若服务端启用了 MCP_AUTH_TOKEN">
+          </label>
+          <button id="save-token" class="button subtle">保存 Token</button>
+        </section>
+
+        <section class="panel history-panel">
+          <div class="panel-head">
+            <h2>审计历史</h2>
+            <button id="refresh-audits" class="button subtle">刷新</button>
+          </div>
+          <div id="audit-list" class="audit-list"></div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div>
+            <p class="eyebrow">Audit Operations</p>
+            <h2>线上合约审计</h2>
+            <p>输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入第三方字节码分析引擎。</p>
+          </div>
+          <form id="audit-form" class="audit-form">
+            <label class="field span-2">
+              <span>合约地址</span>
+              <input id="audit-address" type="text" placeholder="0x..." required>
+            </label>
+            <label class="field">
+              <span>网络</span>
+              <select id="audit-network">
+                <option value="">我不确定，自动识别</option>
+                <option value="1">Ethereum</option>
+                <option value="56">BNB Smart Chain</option>
+                <option value="8453">Base</option>
+                <option value="42161">Arbitrum</option>
+                <option value="137">Polygon</option>
+                <option value="10">Optimism</option>
+                <option value="43114">Avalanche</option>
+                <option value="324">zkSync Era</option>
+                <option value="59144">Linea</option>
+                <option value="250">Fantom</option>
+                <option value="100">Gnosis</option>
+                <option value="11155111">Sepolia</option>
+                <option value="97">BSC Testnet</option>
+                <option value="custom">自定义 Chain ID</option>
+              </select>
+              <small class="panel-note">如果你只知道合约在 Base、BSC、Ethereum 这类网络上，直接选名字即可。</small>
+            </label>
+            <label class="field">
+              <span>协议类型</span>
+              <select id="audit-contract-type">
+                <option value="">自动识别</option>
+                <option value="general">general</option>
+                <option value="launchpad">launchpad</option>
+                <option value="nft">nft</option>
+                <option value="staking">staking</option>
+                <option value="lending">lending</option>
+              </select>
+            </label>
+            <label id="audit-chain-id-field" class="field span-2" hidden>
+              <span>自定义 Chain ID</span>
+              <input id="audit-chain-id" type="number" min="1" placeholder="如 324 / 59144">
+              <small class="panel-note">只有在网络列表里找不到目标链时，才需要填写这项。</small>
+            </label>
+            <button class="button primary span-2" type="submit">发起审计</button>
+          </form>
+        </section>
+
+        <section class="content-grid content-grid-home">
+          <section class="panel result-panel">
+            <div class="panel-head">
+              <h2>结果详情</h2>
+              <span id="result-meta" class="panel-note">选择一条审计记录后查看</span>
+            </div>
+            <div id="result-view" class="result-view empty-state">
+              还没有选中的审计结果。
+            </div>
+          </section>
+
+          <div class="side-stack">
+            <section class="panel action-panel">
+              <div class="panel-head">
+                <h2>规则管理</h2>
+              </div>
+              <p class="panel-note">自定义规则不再放在首页编辑，避免审计主流程被大段 JSON 干扰。</p>
+              <a class="button primary button-link" href="/rules.html">进入规则管理页</a>
+            </section>
+
+            <section class="panel action-panel">
+              <div class="panel-head">
+                <h2>分析引擎</h2>
+              </div>
+              <div class="guide-stack">
+                <article class="guide-card">
+                  <span class="guide-label">Local Rules</span>
+                  <p>基于源码文本规则快速做协议级安全筛查，适合补充业务场景知识。</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-label">External Engine</span>
+                  <p>可选接入 Mythril，对链上合约地址经 RPC 做 EVM 字节码分析，不再局限于已验证源码。</p>
+                </article>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="finding-template">
+      <article class="finding">
+        <div class="finding-head">
+          <span class="badge"></span>
+          <h3></h3>
+        </div>
+        <p class="finding-why"></p>
+        <p class="finding-fix"></p>
+      </article>
+    </template>
+
+    <template id="engine-template">
+      <article class="engine-card">
+        <div class="engine-head">
+          <div>
+            <p class="engine-name"></p>
+            <h3></h3>
+          </div>
+          <span class="badge engine-status"></span>
+        </div>
+        <p class="engine-summary"></p>
+        <div class="engine-meta chip-row"></div>
+        <div class="engine-issues"></div>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1048 @@
+[
+  {
+    "id": "AUTH-TXORIGIN",
+    "enabled": true,
+    "severity": "high",
+    "title": "Avoid using tx.origin for authentication",
+    "rationale": "tx.origin can be abused through phishing-style call chains and should not be used for authorization.",
+    "recommendation": "Use msg.sender plus explicit role checks or AccessControl.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "includes",
+        "value": "tx.origin",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "ACCESS-ADMIN-SETTER",
+    "enabled": true,
+    "severity": "high",
+    "title": "Sensitive setter appears to be missing access control",
+    "rationale": "Admin configuration functions should be restricted to privileged roles.",
+    "recommendation": "Protect privileged configuration with onlyOwner, AccessControl, or explicit admin checks.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+set[A-Z]\\w*\\s*\\([^)]*\\)\\s*(public|external)\\s*\\{[\\s\\S]{0,260}=",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "(owner|admin|governor|treasury|oracle|router|implementation|fee|whitelist|blacklist|paus|config)",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "onlyOwner|onlyAdmin|AccessControl|require\\s*\\(\\s*msg\\.sender\\s*==\\s*(owner|creator|admin)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "ACCESS-BAD-CONSTRUCTOR",
+    "enabled": true,
+    "severity": "high",
+    "title": "Legacy constructor pattern may be callable after deployment",
+    "rationale": "In old Solidity versions, constructor logic depended on the function name matching the contract name exactly. A mismatched initializer can remain publicly callable and let attackers seize ownership or reset critical state.",
+    "recommendation": "Replace name-based constructor logic with the constructor keyword or guard the initializer so it can only run once.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+[A-Z][A-Za-z0-9_]*\\s*\\([^)]*\\)\\s*[^\\{;]{0,64}\\{[\\s\\S]{0,240}(owner|creator|admin|governance)\\s*=\\s*msg\\.sender",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "\\bconstructor\\s*\\(",
+        "flags": ""
+      },
+      {
+        "type": "regex",
+        "value": "initializer|reinitializer",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "ACCESS-UNPROTECTED-INITIALIZER",
+    "enabled": true,
+    "severity": "high",
+    "title": "Initializer appears callable without one-time guard",
+    "rationale": "Public initializer flows that assign privileged roles or flip initialization state can be abused if they are callable more than once or lack an authorization check.",
+    "recommendation": "Protect initialization with initializer/reinitializer modifiers or an explicit initialized guard and restrict who may trigger setup.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+(init|initialize|setup|configure)[A-Za-z0-9_]*\\s*\\([^)]*\\)\\s*(public|external)?",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "(owner|creator|admin|governance)\\s*=\\s*msg\\.sender|initialized\\s*=\\s*true",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "initializer|reinitializer|onlyOwner|onlyAdmin|AccessControl|require\\s*\\(\\s*!\\s*initialized|require\\s*\\(\\s*initialized\\s*==\\s*false",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "ACCESS-OWNER-CHANGE-WITHOUT-GUARD",
+    "enabled": true,
+    "severity": "high",
+    "title": "Ownership transfer function appears unprotected",
+    "rationale": "Functions that directly change owner or admin addresses are critical control surfaces and should never be callable by arbitrary users.",
+    "recommendation": "Restrict owner/admin transfer functions with explicit access control and consider two-step ownership transfers.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+(changeOwner|transferOwnership|setOwner|setAdmin|changeAdmin)\\s*\\([^)]*\\)\\s*(public|external)?",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "onlyOwner|onlyAdmin|AccessControl|require\\s*\\(\\s*msg\\.sender\\s*==\\s*(owner|creator|admin)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "ACCESS-PAUSE-WITHOUT-GUARD",
+    "enabled": true,
+    "severity": "high",
+    "title": "Pause control appears callable without access control",
+    "rationale": "Pause and unpause flows are privileged control paths and should be restricted to trusted operators.",
+    "recommendation": "Protect pause functions with onlyOwner, AccessControl, or an equivalent privileged-role check.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+(pause|unpause|setPause|togglePause)[A-Za-z0-9_]*\\s*\\([^)]*\\)\\s*(public|external)?",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "onlyOwner|onlyAdmin|AccessControl|whenNotPaused|whenPaused|require\\s*\\(\\s*msg\\.sender\\s*==\\s*(owner|creator|admin)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "UPGRADE-IMPLEMENTATION-WITHOUT-GUARD",
+    "enabled": true,
+    "severity": "critical",
+    "title": "Upgrade or implementation setter appears unprotected",
+    "rationale": "Upgrade entry points are among the highest-risk functions in a proxy system because arbitrary callers may swap the implementation and fully compromise the protocol.",
+    "recommendation": "Restrict upgrade flows with explicit authorization and add upgrade event logging plus implementation validation.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+(upgradeTo|upgradeToAndCall|setImplementation|changeImplementation)\\w*\\s*\\([^)]*\\)\\s*(public|external)?",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "onlyOwner|onlyAdmin|AccessControl|require\\s*\\(\\s*msg\\.sender\\s*==\\s*(owner|creator|admin)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "REENTRANCY-CALL-FIRST",
+    "enabled": true,
+    "severity": "critical",
+    "title": "External call is executed before state reset",
+    "rationale": "Calling an external address before clearing state opens a classical reentrancy window.",
+    "recommendation": "Apply checks-effects-interactions and clear state before the external call, or use ReentrancyGuard.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "call\\{value:[^}]+\\}\\(\"\"\\).*purchased\\[msg\\.sender\\]\\s*=\\s*0",
+        "flags": "s"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "REENTRANCY-WITHDRAW-EXTERNAL",
+    "enabled": true,
+    "severity": "high",
+    "title": "Withdrawal-like flow performs external payment without visible reentrancy guard",
+    "rationale": "Withdraw, claim and unstake flows are common reentrancy targets when value is sent out before the function completes and there is no clear guard.",
+    "recommendation": "Use checks-effects-interactions, nonReentrant, and state accounting that is finalized before any external payment is attempted.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+\\w*(withdraw|claim|exit|unstake)\\w*\\s*\\([^)]*\\)[\\s\\S]{0,500}\\.(call|send|transfer)\\s*(\\{|\\()",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "nonReentrant|ReentrancyGuard",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "CALL-LOWLEVEL",
+    "enabled": false,
+    "severity": "low",
+    "title": "Raw low-level call pattern detected (manual review)",
+    "rationale": "Mature protocols often use low-level call intentionally. This heuristic is useful for exploratory review but can over-report without flow-sensitive checks.",
+    "recommendation": "Treat this as a manual-review hint. Confirm return-value checks, gas/griefing assumptions, and reentrancy safety on each call site.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "\\.call(\\{|\\()",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "CALL-UNCHECKED-SEND",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Ether send appears unchecked",
+    "rationale": "send() returns a boolean instead of reverting. Ignoring the return value can silently skip payouts or break accounting assumptions.",
+    "recommendation": "Check the send() result explicitly or switch to a safer payment pattern with require-based error handling.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "\\.send\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "require\\s*\\([^;]*\\.send\\s*\\(|if\\s*\\([^;]*\\.send\\s*\\(",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "DELEGATECALL-LOWLEVEL",
+    "enabled": true,
+    "severity": "high",
+    "title": "delegatecall detected",
+    "rationale": "delegatecall executes external code in the current storage context and can break invariants or open upgrade and authorization risks.",
+    "recommendation": "Review delegatecall targets, storage layout assumptions, and access control around every execution path.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "\\.delegatecall\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "SELFDESTRUCT-PRESENT",
+    "enabled": true,
+    "severity": "high",
+    "title": "selfdestruct or suicide opcode usage detected",
+    "rationale": "Contract destruction paths can break protocol assumptions, destroy state, and redirect remaining ETH unexpectedly.",
+    "recommendation": "Avoid selfdestruct in production systems unless there is a rigorously reviewed and access-controlled shutdown design.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "selfdestruct|suicide\\s*\\(",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "RNG-BLOCK-TIMESTAMP",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Block timestamp used as a randomness source",
+    "rationale": "Block properties are not secure randomness sources for adversarial settings such as lotteries or NFT mint randomness.",
+    "recommendation": "Use a verifiable randomness solution such as Chainlink VRF or an off-chain commit-reveal design.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "block\\.timestamp|block\\.prevrandao|\\bnow\\b",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "random|rand|entropy|seed|lottery|raffle|winner|draw|keccak256\\s*\\([^)]*(timestamp|prevrandao)|%\\s*[0-9A-Za-z_]",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": []
+  },
+  {
+    "id": "RNG-BLOCKHASH",
+    "enabled": true,
+    "severity": "medium",
+    "title": "blockhash-based randomness detected",
+    "rationale": "blockhash, block.number and similar chain inputs are adversarially influenceable and should not be treated as secure randomness.",
+    "recommendation": "Replace block-derived randomness with VRF or a carefully designed commit-reveal scheme.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "blockhash\\s*\\(|keccak256\\s*\\([^)]*(block\\.number|blockhash|msg\\.sender|block\\.timestamp)",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "DOS-UNBOUNDED-LOOP",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Potential unbounded loop over user-controlled state",
+    "rationale": "Loops over dynamic arrays or participant sets can become uncallable as the dataset grows and may create denial-of-service conditions.",
+    "recommendation": "Use pull-based settlement, bounded batching, or off-chain indexing instead of unbounded on-chain iteration.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "(for|while)\\s*\\([^)]*(participants|users|stakers|holders|investors|payees|winners|claimants|recipients)",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "DOS-PUSH-PAYMENT",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Looped payout or push-payment pattern detected",
+    "rationale": "Sending funds inside loops can make settlement fail or become too expensive as the recipient set grows.",
+    "recommendation": "Move to pull payments or batched withdrawals with bounded work per transaction.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "(for|while)\\s*\\([^)]*\\)[\\s\\S]{0,500}\\.(call|send|transfer)\\s*(\\{|\\()",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "participants|users|stakers|holders|investors|payees|winners|claimants|recipients|dividend|reward|payout",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": []
+  },
+  {
+    "id": "TOKEN-IGNORED-RETURN",
+    "enabled": true,
+    "severity": "medium",
+    "title": "ERC20 transfer return value may be ignored",
+    "rationale": "Many ERC20 implementations signal failure via a false return value instead of reverting. Ignoring the result can silently break accounting or payout logic.",
+    "recommendation": "Use SafeERC20 or explicitly require successful transfer/transferFrom/approve return values.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "(IERC20|ERC20|token)\\s*\\([^)]*\\)?\\s*\\.\\s*(transfer|transferFrom|approve)\\s*\\(",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "SafeERC20|safeTransfer|safeTransferFrom|safeApprove|require\\s*\\([^;]*\\.(transfer|transferFrom|approve)\\s*\\(",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "SIGNATURE-NOREPLAY-GENERAL",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Signature flow may be missing replay protection",
+    "rationale": "Generic ecrecover or ECDSA verification flows need nonce, deadline and domain separation to avoid replay across users, chains or time windows.",
+    "recommendation": "Bind signatures to signer, chainId, nonce, deadline and the exact action or resource being authorized.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "ecrecover|ECDSA",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "nonce|deadline|chainid|domainSeparator|DOMAIN_SEPARATOR|permit",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "ORACLE-NO-STALENESS",
+    "enabled": true,
+    "severity": "high",
+    "title": "Oracle usage lacks visible staleness checks",
+    "rationale": "Price-sensitive lending and collateral flows should validate oracle freshness, answeredInRound and heartbeat assumptions.",
+    "recommendation": "Check updatedAt, answeredInRound, heartbeat windows and fallback behavior before trusting oracle responses.",
+    "contractTypes": [
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "latestRoundData|getPrice|priceFeed|oracle",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "updatedAt|answeredInRound|stale|heartbeat",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "MATH-LEGACY-ARITHMETIC",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Legacy compiler with unchecked arithmetic detected",
+    "rationale": "Solidity versions before 0.8 do not include built-in overflow checks. Plain arithmetic in legacy code deserves manual review unless SafeMath or equivalent protections are used consistently.",
+    "recommendation": "Use Solidity 0.8+ checked arithmetic or wrap every critical calculation with SafeMath-style guards.",
+    "contractTypes": [],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "pragma\\s+solidity\\s+[^;]*0\\.[0-7]",
+        "flags": ""
+      },
+      {
+        "type": "regex",
+        "value": "[A-Za-z0-9_\\]\\)]\\s*(\\+|\\-|\\*|/)\\s*[A-Za-z0-9_\\[(]",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "SafeMath|\\.add\\(|\\.sub\\(|\\.mul\\(|\\.div\\(",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "DEFI-ORACLE-SPOT-PRICE",
+    "enabled": true,
+    "severity": "high",
+    "title": "Spot DEX price appears to be used without TWAP protection",
+    "rationale": "Using a raw AMM spot price from pair reserves or slot0 in price-sensitive logic is a common DeFi failure mode because it can be manipulated within a single block or flash-loan transaction.",
+    "recommendation": "Use a TWAP or hardened oracle layer such as Uniswap OracleLibrary/observe-based windows, Chainlink, or a bounded multi-source oracle.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "getReserves\\s*\\(|slot0\\s*\\(|sqrtPriceX96|price0CumulativeLast|price1CumulativeLast",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "consult\\s*\\(|observe\\s*\\(|TWAP|timeWeighted|OracleLibrary|secondsAgo",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-ORACLE-NO-CIRCUIT-BREAKER",
+    "enabled": true,
+    "severity": "high",
+    "title": "Oracle integration lacks visible sanity bounds or circuit breaker",
+    "rationale": "Even with a fresh oracle, protocols need safety rails such as bounds checks, sequencer checks, or circuit breakers to handle extreme values and oracle outages safely.",
+    "recommendation": "Add sanity bounds, sequencer checks for L2 feeds, fallback behavior, and a circuit-breaker path for abnormal oracle values.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "latestRoundData\\s*\\(|getRoundData\\s*\\(|priceFeed|oracle",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "minAnswer|maxAnswer|upperBound|lowerBound|sanity|circuitBreaker|gracePeriod|sequencer",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-ORACLE-DECIMALS-NORMALIZATION",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Oracle value usage lacks visible decimal normalization",
+    "rationale": "Mixing oracle answers, token decimals and protocol precision without explicit normalization is a common source of collateral and pricing bugs in lending and vault systems.",
+    "recommendation": "Normalize every oracle answer into a clearly documented fixed-point format and account for feed and token decimals explicitly.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "latestRoundData\\s*\\(|getRoundData\\s*\\(|priceFeed",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "decimals\\s*\\(|normalize|scale|scalingFactor|1e8|1e18|10\\s*\\*\\*\\s*(8|18)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-ORACLE-SEQUENCER-UPTIME-MISSING",
+    "enabled": true,
+    "severity": "high",
+    "title": "L2 oracle integration lacks visible sequencer uptime checks",
+    "rationale": "On optimistic rollups and similar L2s, price-sensitive flows should account for sequencer downtime and grace periods. Otherwise stale or unsafe prices may be trusted immediately after sequencer recovery.",
+    "recommendation": "Integrate a sequencer uptime feed and enforce a grace period before accepting oracle prices after sequencer downtime.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "latestRoundData\\s*\\(|getRoundData\\s*\\(|priceFeed",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "sequencer|uptimeFeed|GRACE_PERIOD|gracePeriod|isSequencerUp|sequencerUptime",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-FLASHLOAN-CALLBACK-SENDER",
+    "enabled": true,
+    "severity": "critical",
+    "title": "Flash-loan callback lacks visible lender verification",
+    "rationale": "Flash-loan callback entry points must validate the caller. If arbitrary users can invoke the callback, they may bypass intended flow assumptions or trigger sensitive code paths directly.",
+    "recommendation": "Restrict flash-loan callback functions so only the trusted lending pool or flash-loan provider may call them.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+(executeOperation|onFlashLoan|receiveFlashLoan)\\s*\\(",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "msg\\.sender\\s*==\\s*(address\\s*\\()?(pool|lender|vault|provider|flashLoanProvider|flashLender|POOL|LENDING_POOL)",
+        "flags": "i"
+      },
+      {
+        "type": "regex",
+        "value": "CallbackValidation\\.verifyCallback",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "DEFI-FLASHLOAN-INITIATOR",
+    "enabled": true,
+    "severity": "high",
+    "title": "Flash-loan callback lacks visible initiator check",
+    "rationale": "Many flash-loan integrations also need to validate that the initiator is the current contract. Otherwise borrowed execution may be re-routed through an unexpected initiator context.",
+    "recommendation": "Check that the initiator is address(this) or another explicitly trusted initiator before continuing execution.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+(executeOperation|onFlashLoan|receiveFlashLoan)\\s*\\([^)]*initiator",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "initiator\\s*==\\s*address\\s*\\(\\s*this\\s*\\)|initiator\\s*==\\s*address\\(this\\)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-SWAP-NO-SLIPPAGE",
+    "enabled": true,
+    "severity": "high",
+    "title": "Swap flow lacks visible slippage protection",
+    "rationale": "AMM swaps without amountOutMin or an equivalent bound are exposed to sandwich attacks, stale routing assumptions and unexpected execution prices.",
+    "recommendation": "Require amountOutMin or an equivalent execution-price bound for every user-facing swap path.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "swapExactTokensForTokens|swapExactETHForTokens|swapExactTokensForETH|exactInputSingle|exactInput\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "amountOutMin|minAmountOut|minOut|minimumAmountOut|sqrtPriceLimitX96",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-SWAP-NO-DEADLINE",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Swap flow lacks visible deadline or expiry protection",
+    "rationale": "Swap requests without deadlines are easier to replay or execute after market conditions have materially changed.",
+    "recommendation": "Attach an explicit deadline or signed expiry to every user-directed swap and check it before execution.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "swapExactTokensForTokens|swapExactETHForTokens|swapExactTokensForETH|exactInputSingle|exactInput\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "deadline|expiry|expiresAt|block\\.timestamp\\s*\\+",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-SWAP-ZERO-MINOUT",
+    "enabled": true,
+    "severity": "high",
+    "title": "Swap flow appears to set minimum output to zero",
+    "rationale": "Passing a zero minimum output disables slippage protection in practice and leaves the swap vulnerable to poor execution and sandwich attacks.",
+    "recommendation": "Compute and enforce a non-zero minimum output based on user-configured slippage tolerance or a trusted quote source.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "swapExactTokensForTokens\\s*\\([^,]+,\\s*0\\s*,|swapExactETHForTokens\\s*\\([^,]+,\\s*0\\s*,|swapExactTokensForETH\\s*\\([^,]+,\\s*0\\s*,|amountOutMinimum\\s*:\\s*0|amountOutMin\\s*=\\s*0|minAmountOut\\s*=\\s*0|minOut\\s*=\\s*0",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": []
+  },
+  {
+    "id": "DEFI-LENDING-NO-HEALTH-CHECK",
+    "enabled": true,
+    "severity": "high",
+    "title": "Borrow or redemption flow lacks visible solvency checks",
+    "rationale": "Borrow, withdraw and redeem flows in lending systems should validate post-action solvency or health-factor constraints. Missing checks can allow undercollateralized exits.",
+    "recommendation": "Enforce health-factor, collateral-ratio or solvency checks after every state-changing borrowing or collateral withdrawal path.",
+    "contractTypes": [
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+\\w*(borrow|withdraw|redeem|liquidat)\\w*\\s*\\(",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "collateral|debt|borrow|loan|ltv|liquidation",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "healthFactor|accountLiquidity|_isSolvent|isSolvent|ensureHealthy|isHealthy|collateralRatio|require\\s*\\([^;]*(healthy|solvent)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-LIQUIDATION-NO-CLOSE-FACTOR",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Liquidation flow lacks visible close-factor or incentive bounds",
+    "rationale": "Liquidation logic usually needs explicit bounds such as close factor, liquidation bonus caps and repayment limits. Missing parameters can cause overly aggressive or inconsistent liquidations.",
+    "recommendation": "Define close-factor and liquidation incentive bounds, and validate every liquidation against them explicitly.",
+    "contractTypes": [
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+\\w*liquidat\\w*\\s*\\(",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "repay|debt|collateral|seize",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "closeFactor|maxLiquidation|liquidationBonus|bonus|incentive",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-ERC4626-DONATION-RISK",
+    "enabled": true,
+    "severity": "medium",
+    "title": "ERC4626-style vault flow lacks visible anti-donation protections",
+    "rationale": "Vault share math can be manipulated when early deposits or donations distort the exchange rate and the implementation has no virtual shares, offsets or minimum liquidity protections.",
+    "recommendation": "Use virtual shares/assets, a decimals offset, minimum liquidity, or another documented defense against donation and first-depositor manipulation.",
+    "contractTypes": [
+      "general",
+      "staking"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "ERC4626|convertToShares|convertToAssets|previewDeposit|previewMint",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "virtual|offset|minLiquidity|deadShares|INITIAL_SHARES|decimalsOffset|_decimalsOffset",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-ERC4626-ROUNDING-MATH",
+    "enabled": true,
+    "severity": "medium",
+    "title": "ERC4626 share conversion math lacks visible rounding controls",
+    "rationale": "Vault share math is sensitive to rounding direction. Custom ERC4626 conversions that use raw multiplication and division without explicit rounding intent can leak value between depositors and redeemers.",
+    "recommendation": "Use hardened mulDiv-style math with explicit rounding direction for convert/preview functions and verify behavior across low-liquidity edge cases.",
+    "contractTypes": [
+      "general",
+      "staking"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "ERC4626|convertToShares|convertToAssets|previewDeposit|previewMint|previewWithdraw|previewRedeem",
+        "flags": ""
+      },
+      {
+        "type": "regex",
+        "value": "\\*.*\\/|\\/.*\\*",
+        "flags": "s"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "mulDiv|Math\\.Rounding|Rounding\\.(Up|Down|Zero)|rounding",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "DEFI-TOKEN-FEE-ON-TRANSFER-ACCOUNTING",
+    "enabled": true,
+    "severity": "high",
+    "title": "Deposit accounting assumes full transfer amount for fee-on-transfer tokens",
+    "rationale": "Protocols that credit deposits using the requested transfer amount instead of the actual received balance can be broken by fee-on-transfer or deflationary tokens.",
+    "recommendation": "Measure balanceBefore/balanceAfter and account based on actual tokens received rather than trusting the transfer input amount.",
+    "contractTypes": [
+      "general",
+      "lending",
+      "staking"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "transferFrom\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "(balance|shares|stake|deposit|credit|amountReceived|assets)\\s*(\\+=|=)\\s*amount",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "balanceBefore|balanceAfter|received\\s*=|actualReceived|postBalance|preBalance",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-TOKEN-REBASING-BALANCE-ACCOUNTING",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Accounting appears to rely on raw token balances and may break for rebasing assets",
+    "rationale": "Protocols that use token.balanceOf(address(this)) as primary accounting without shares or an index can behave incorrectly when assets rebase or otherwise change balances asynchronously.",
+    "recommendation": "Use share-based accounting or an index/scaled-balance model instead of trusting raw token balances as the canonical user-accounting source.",
+    "contractTypes": [
+      "general",
+      "lending",
+      "staking"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "balanceOf\\s*\\(\\s*address\\s*\\(\\s*this\\s*\\)\\s*\\)|balanceOf\\s*\\(\\s*address\\(this\\)\\s*\\)",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [
+      {
+        "type": "regex",
+        "value": "deposit|withdraw|redeem|claim|stake|unstake|totalAssets",
+        "flags": "i"
+      }
+    ],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "shares|index|scaledBalance|liquidityIndex|rebasing|rebase|exchangeRate",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "DEFI-UNISWAP-CALLBACK-VERIFY",
+    "enabled": true,
+    "severity": "high",
+    "title": "Uniswap-style swap callback lacks visible pool verification",
+    "rationale": "AMM callback functions such as uniswapV3SwapCallback must validate the caller. Without callback validation, arbitrary callers may trigger settlement logic directly.",
+    "recommendation": "Validate the callback sender against the expected pool or use the protocol's callback validation helper.",
+    "contractTypes": [
+      "general",
+      "lending"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "function\\s+uniswapV3SwapCallback\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "CallbackValidation\\.verifyCallback|msg\\.sender\\s*==\\s*(address\\s*\\()?(pool|uniswapV3Pool|expectedPool)",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "UPGRADE-STORAGE-GAP-MISSING",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Upgradeable contract lacks visible storage-gap reservation",
+    "rationale": "Upgradeable contracts often reserve storage gaps to reduce upgrade collision risk. Missing gaps are not always exploitable on their own, but they increase maintenance and storage-layout risk over time.",
+    "recommendation": "Reserve storage slots with a documented __gap pattern or apply a verified storage-layout discipline before future upgrades.",
+    "contractTypes": [
+      "general",
+      "lending",
+      "staking"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "Initializable|UUPSUpgradeable|upgradeTo\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "__gap|storage gap",
+        "flags": "i"
+      }
+    ]
+  },
+  {
+    "id": "TOKEN-APPROVE-RACE",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Token approval flow may be exposed to allowance race conditions",
+    "rationale": "Directly changing a non-zero ERC20 allowance to another non-zero value can allow race-condition abuse on tokens that follow the classic approve semantics.",
+    "recommendation": "Reset approvals to zero first or use forceApprove/safeIncreaseAllowance-style patterns where supported.",
+    "contractTypes": [
+      "general",
+      "lending",
+      "staking"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "\\.approve\\s*\\(",
+        "flags": ""
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "safeApprove|forceApprove|approve\\s*\\([^,]+,\\s*0\\s*\\)|safeIncreaseAllowance|safeDecreaseAllowance",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "EVENTS-MISSING",
+    "enabled": true,
+    "severity": "low",
+    "title": "No event definitions found",
+    "rationale": "Key state changes should emit events to support monitoring, analytics and incident response.",
+    "recommendation": "Emit events for config changes, purchases, claims, draws, staking changes and admin actions.",
+    "contractTypes": [],
+    "allPatterns": [],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "\\bevent\\s+[A-Z]\\w*",
+        "flags": ""
+      }
+    ]
+  },
+  {
+    "id": "WHITELIST-WEAK",
+    "enabled": true,
+    "severity": "medium",
+    "title": "Whitelist flow does not show nonce or deadline protection",
+    "rationale": "LaunchPad whitelist flows typically need replay protection and explicit signature domain binding.",
+    "recommendation": "Include signer, chainId, nonce, deadline and claimed status in whitelist verification logic.",
+    "contractTypes": [
+      "launchpad"
+    ],
+    "allPatterns": [
+      {
+        "type": "regex",
+        "value": "whitelist",
+        "flags": "i"
+      }
+    ],
+    "anyPatterns": [],
+    "nonePatterns": [
+      {
+        "type": "regex",
+        "value": "nonce|deadline|chainid|ecrecover|ECDSA",
+        "flags": ""
+      }
+    ]
+  }
+]

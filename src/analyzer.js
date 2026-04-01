@@ -1,69 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getProjectRoot } from "./knowledge-base.js";
-import { fetchVerifiedContractSource } from "./verified-source.js";
-
-// Rule engine kept intentionally simple: each rule is a string/regex heuristic
-// that can run without AST tooling. This keeps the demo lightweight while still
-// making the audit flow easy to wire into MCP transports.
-const rules = [
-  {
-    id: "AUTH-TXORIGIN",
-    severity: "high",
-    title: "Avoid using tx.origin for authentication",
-    test: (code) => code.includes("tx.origin"),
-    rationale: "tx.origin can be abused through phishing-style call chains and should not be used for authorization.",
-    recommendation: "Use msg.sender plus explicit role checks or AccessControl."
-  },
-  {
-    id: "ACCESS-ADMIN-SETTER",
-    severity: "high",
-    title: "Sensitive setter appears to be missing access control",
-    test: (code) => /function\s+set[A-Z]\w*\s*\([^)]*\)\s+external/.test(code) && !/onlyOwner|AccessControl|require\s*\(\s*msg\.sender\s*==\s*owner/.test(code),
-    rationale: "Admin configuration functions should be restricted to privileged roles.",
-    recommendation: "Protect privileged configuration with onlyOwner, AccessControl, or explicit admin checks."
-  },
-  {
-    id: "REENTRANCY-CALL-FIRST",
-    severity: "critical",
-    title: "External call is executed before state reset",
-    test: (code) => /call\{value:[^}]+\}\(""\).*purchased\[msg\.sender\]\s*=\s*0/s.test(code),
-    rationale: "Calling an external address before clearing state opens a classical reentrancy window.",
-    recommendation: "Apply checks-effects-interactions and clear state before the external call, or use ReentrancyGuard."
-  },
-  {
-    id: "CALL-LOWLEVEL",
-    severity: "medium",
-    title: "Low-level call detected",
-    test: (code) => /\.call\{/.test(code),
-    rationale: "Low-level call usage deserves careful review for reentrancy and error-handling paths.",
-    recommendation: "Prefer pull-based withdrawals with reentrancy protection and ensure failure paths are explicit."
-  },
-  {
-    id: "RNG-BLOCK-TIMESTAMP",
-    severity: "medium",
-    title: "Block timestamp used as a randomness source",
-    test: (code) => /block\.timestamp|block\.prevrandao/.test(code),
-    rationale: "Block properties are not secure randomness sources for adversarial settings such as lotteries or NFT mint randomness.",
-    recommendation: "Use a verifiable randomness solution such as Chainlink VRF or an off-chain commit-reveal design."
-  },
-  {
-    id: "EVENTS-MISSING",
-    severity: "low",
-    title: "No event definitions found",
-    test: (code) => !/\bevent\s+[A-Z]\w*/.test(code),
-    rationale: "Key state changes should emit events to support monitoring, analytics and incident response.",
-    recommendation: "Emit events for config changes, purchases, claims, draws, staking changes and admin actions."
-  },
-  {
-    id: "WHITELIST-WEAK",
-    severity: "medium",
-    title: "Whitelist flow does not show nonce or deadline protection",
-    test: (code, contractType) => contractType === "launchpad" && /whitelist/i.test(code) && !/nonce|deadline|chainid|ecrecover|ECDSA/.test(code),
-    rationale: "LaunchPad whitelist flows typically need replay protection and explicit signature domain binding.",
-    recommendation: "Include signer, chainId, nonce, deadline and claimed status in whitelist verification logic."
-  }
-];
+import {
+  fetchDeployedBytecode,
+  fetchVerifiedContractSource
+} from "./verified-source.js";
+import { getRules } from "./rule-store.js";
+import { runExternalAddressAnalyses } from "./external-analyzers.js";
 
 // Domain auto-detection is best-effort only. It exists to choose a more useful
 // checklist / finding context when the caller does not provide a contractType.
@@ -97,12 +40,49 @@ function makeSummary(contractType, findings) {
   return `${contractType} contract audit finished with ${findings.length} findings, including ${severeCount} high-severity items.`;
 }
 
-export function auditCode(code, options = {}) {
+function makeAddressSummary(contractType, findings, externalAnalyses, analysisMode, sourceAvailable) {
+  const severeCount = findings.filter((item) => item.severity === "critical" || item.severity === "high").length;
+  const externalIssueCount = externalAnalyses
+    .filter((analysis) => analysis.status === "ok")
+    .reduce((count, analysis) => count + (analysis.issueCount || 0), 0);
+
+  if (sourceAvailable) {
+    return `${contractType} contract audit finished in ${analysisMode} mode with ${findings.length} local findings, ${severeCount} high-severity local items, and ${externalIssueCount} external engine issue(s).`;
+  }
+
+  return `${contractType} contract audit finished in ${analysisMode} mode without verified source. Local rules were skipped, and external engines reported ${externalIssueCount} issue(s).`;
+}
+
+function matchesPattern(code, pattern) {
+  if (pattern.type === "includes") {
+    return code.includes(pattern.value);
+  }
+
+  return new RegExp(pattern.value, pattern.flags || "").test(code);
+}
+
+function matchesRule(rule, code, contractType) {
+  if (!rule.enabled) {
+    return false;
+  }
+
+  if (rule.contractTypes.length > 0 && !rule.contractTypes.includes(contractType)) {
+    return false;
+  }
+
+  const allPass = rule.allPatterns.every((pattern) => matchesPattern(code, pattern));
+  const anyPass = rule.anyPatterns.length === 0 || rule.anyPatterns.some((pattern) => matchesPattern(code, pattern));
+  const nonePass = rule.nonePatterns.every((pattern) => !matchesPattern(code, pattern));
+
+  return allPass && anyPass && nonePass;
+}
+
+export async function auditCode(code, options = {}) {
   // Evaluate every rule against the same source blob, then normalize to a
   // compact structure that works for CLI, custom MCP and SDK MCP outputs.
   const contractType = detectContractType(code, options.contractType);
-  const findings = rules
-    .filter((rule) => rule.test(code, contractType))
+  const findings = (await getRules())
+    .filter((rule) => matchesRule(rule, code, contractType))
     .map((rule) => ({
       id: rule.id,
       severity: rule.severity,
@@ -118,7 +98,7 @@ export function auditCode(code, options = {}) {
   };
 }
 
-export function auditFile(relativePath, options = {}) {
+export async function auditFile(relativePath, options = {}) {
   // Constrain file access to the project root so MCP callers cannot use the
   // tool to read arbitrary files on the machine.
   const safePath = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, "");
@@ -130,18 +110,87 @@ export function auditFile(relativePath, options = {}) {
   return {
     path: safePath,
     code,
-    ...auditCode(code, options)
+    ...(await auditCode(code, options))
   };
 }
 
 export async function auditAddress(address, options = {}) {
-  // Address-based audit is a two-stage pipeline:
-  // 1. Resolve verified source from explorers / Sourcify / RPC proxy hints
-  // 2. Reuse the same static rule engine used for local files and raw code
-  const contract = await fetchVerifiedContractSource(address, options);
+  // Address-based audit now supports two parallel evidence sources:
+  // 1. verified source code, used for local rules
+  // 2. deployed bytecode + optional external engines such as Mythril
+  let sourceContract = null;
+  let sourceError = "";
+
+  try {
+    sourceContract = await fetchVerifiedContractSource(address, options);
+  } catch (error) {
+    sourceError = error.message;
+  }
+
+  let bytecodeContract = null;
+  let bytecodeError = "";
+  const preferredChainId = sourceContract?.chainId || options.chainId;
+
+  try {
+    bytecodeContract = await fetchDeployedBytecode(address, { chainId: preferredChainId });
+  } catch (error) {
+    bytecodeError = error.message;
+  }
+
+  const resolvedChainId = sourceContract?.chainId || bytecodeContract?.chainId || null;
+  const resolvedRpcUrl = bytecodeContract?.rpcUrl || null;
+  const externalAnalyses = await runExternalAddressAnalyses(address, {
+    chainId: resolvedChainId,
+    rpcUrl: resolvedRpcUrl,
+    sourceCode: sourceContract?.code || "",
+    contractName: sourceContract?.contractName || "",
+    primarySourcePath: sourceContract?.primarySourcePath || ""
+  });
+
+  if (!sourceContract && !bytecodeContract && externalAnalyses.every((analysis) => analysis.status !== "ok")) {
+    throw new Error(sourceError || bytecodeError || "Unable to audit the contract address with either source-based or bytecode-based analysis.");
+  }
+
+  const localAudit = sourceContract
+    ? await auditCode(sourceContract.code, options)
+    : {
+        contractType: options.contractType || "general",
+        findings: []
+      };
+
+  const analysisMode = sourceContract
+    ? (bytecodeContract ? "source-and-bytecode" : "source-only")
+    : "bytecode-only";
+
   return {
-    ...contract,
-    ...auditCode(contract.code, options)
+    ...(sourceContract || {
+      address,
+      chainId: bytecodeContract?.chainId || null,
+      chainName: bytecodeContract?.chainName || "unknown",
+      sourceRepository: null,
+      sourceFiles: [],
+      missingSourceFiles: [],
+      matchType: "bytecode-only"
+    }),
+    ...(bytecodeContract ? {
+      bytecodeSize: bytecodeContract.bytecodeSize,
+      bytecodeHash: bytecodeContract.bytecodeHash,
+      bytecodeProvider: bytecodeContract.provider
+    } : {}),
+    contractType: localAudit.contractType,
+    findings: localAudit.findings,
+    externalAnalyses,
+    analysisMode,
+    hasVerifiedSource: Boolean(sourceContract),
+    sourceFetchError: sourceError || null,
+    bytecodeFetchError: bytecodeError || null,
+    summary: makeAddressSummary(
+      localAudit.contractType,
+      localAudit.findings,
+      externalAnalyses,
+      analysisMode,
+      Boolean(sourceContract)
+    )
   };
 }
 

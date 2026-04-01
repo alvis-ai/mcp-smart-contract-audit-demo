@@ -1,6 +1,11 @@
+databases:
+  - name: smart-contract-audit-db
+    databaseName: smart_contract_audit
+    user: smart_contract_audit
+
 services:
   - type: web
-    name: smart-contract-audit-mcp
+    name: smart-contract-audit-mcp-http
     runtime: docker
     plan: free
     autoDeploy: true
@@ -14,4 +19,20 @@ services:
         value: /mcp
       - key: MCP_AUTH_TOKEN
         generateValue: true
-
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smart-contract-audit-db
+          property: connectionString
+  - type: worker
+    name: smart-contract-audit-mcp-worker
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    dockerCommand: node src/audit-worker.js
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smart-contract-audit-db
+          property: connectionString
+      - key: AUDIT_WORKER_CONCURRENCY
+        value: 1

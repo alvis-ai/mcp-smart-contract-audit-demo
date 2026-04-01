@@ -7,6 +7,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "express": "^5.2.1",
+    "pg": "^8.20.0",
     "zod": "^4.3.6"
   },
   "bin": {
@@ -17,6 +18,7 @@
     "start:http": "node src/http-server.js",
     "start:sdk": "node src/sdk-stdio-server.js",
     "start:sdk:http": "node src/sdk-http-server.js",
+    "start:worker": "node src/audit-worker.js",
     "start:bin": "node bin/smart-contract-audit-mcp.js",
     "demo": "node scripts/demo-client.js",
     "audit:address": "node scripts/audit-address.js",

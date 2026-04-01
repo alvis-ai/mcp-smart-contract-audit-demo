@@ -1,9 +1,20 @@
 services:
-  smart-contract-audit-mcp:
+  smart-contract-audit-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: smart_contract_audit
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  smart-contract-audit-mcp-http:
     build:
       context: .
       dockerfile: Dockerfile
     image: smart-contract-audit-mcp:local
+    command: ["node", "src/sdk-http-server.js"]
     ports:
       - "3000:3000"
     env_file:
@@ -12,5 +23,29 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       MCP_HTTP_PATH: /mcp
+      DATABASE_URL: postgresql://postgres:postgres@smart-contract-audit-db:5432/smart_contract_audit
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - smart-contract-audit-db
     restart: unless-stopped
 
+  smart-contract-audit-mcp-worker:
+    image: smart-contract-audit-mcp:local
+    command: ["node", "src/audit-worker.js"]
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      MCP_HTTP_PATH: /mcp
+      DATABASE_URL: postgresql://postgres:postgres@smart-contract-audit-db:5432/smart_contract_audit
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - smart-contract-audit-db
+      - smart-contract-audit-mcp-http
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

@@ -11,12 +11,13 @@ const projectRoot = path.resolve(__dirname, "..");
 // one stable command while switching between custom and SDK transports.
 function printHelp() {
   process.stdout.write([
-    "Usage: smart-contract-audit-mcp [--http] [--sdk] [--port <port>] [--host <host>] [--path <path>]",
+    "Usage: smart-contract-audit-mcp [--http] [--sdk] [--worker] [--port <port>] [--host <host>] [--path <path>]",
     "",
     "Modes:",
     "  default       Start MCP over stdio",
     "  --http        Start MCP over HTTP",
     "  --sdk         Use the official MCP SDK server entrypoint",
+    "  --worker      Start the background audit worker",
     "",
     "Examples:",
     "  smart-contract-audit-mcp",
@@ -31,6 +32,7 @@ function parseArgs(argv) {
   const env = {};
   let transport = "stdio";
   let entryFamily = "custom";
+  let workerMode = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -52,6 +54,11 @@ function parseArgs(argv) {
 
     if (arg === "--sdk") {
       entryFamily = "sdk";
+      continue;
+    }
+
+    if (arg === "--worker") {
+      workerMode = true;
       continue;
     }
 
@@ -78,11 +85,13 @@ function parseArgs(argv) {
     process.exit(1);
   }
 
-  return { transport, env, entryFamily };
+  return { transport, env, entryFamily, workerMode };
 }
 
-const { transport, env, entryFamily } = parseArgs(process.argv.slice(2));
-const entry = entryFamily === "sdk"
+const { transport, env, entryFamily, workerMode } = parseArgs(process.argv.slice(2));
+const entry = workerMode
+  ? "src/audit-worker.js"
+  : entryFamily === "sdk"
   ? (transport === "http" ? "src/sdk-http-server.js" : "src/sdk-stdio-server.js")
   : (transport === "http" ? "src/http-server.js" : "src/server.js");
 

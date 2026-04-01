@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rule Management</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell shell-rules">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">Rule Center</p>
+          <h1>自定义规则管理</h1>
+          <p class="brand-copy">在独立页面中维护共享规则，避免首页被 JSON 和维护操作打断。</p>
+        </div>
+
+        <section class="panel token-panel">
+          <div class="panel-head">
+            <h2>API Token</h2>
+          </div>
+          <label class="field">
+            <span>Bearer Token</span>
+            <input id="token-input" type="password" placeholder="可选，若服务端启用了 MCP_AUTH_TOKEN">
+          </label>
+          <button id="save-token" class="button subtle">保存 Token</button>
+        </section>
+
+        <section class="panel action-panel">
+          <div class="panel-head">
+            <h2>返回首页</h2>
+          </div>
+          <p class="panel-note">首页只保留链上审计和结果查看，这里负责维护共享规则。</p>
+          <a class="button primary button-link" href="/">回到审计首页</a>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div>
+            <p class="eyebrow">Rule Workspace</p>
+            <h2>规则工作台</h2>
+            <p>规则修改会立即写入共享存储，并同步影响 Web Console、CLI 和 MCP 调用。</p>
+          </div>
+          <div class="hero-actions">
+            <button id="new-rule" class="button subtle">新建模板</button>
+            <button id="refresh-rules" class="button subtle">刷新</button>
+          </div>
+        </section>
+
+        <section class="panel rules-panel">
+          <div class="rules-overview">
+            <article class="metric-card">
+              <span>规则总数</span>
+              <strong id="rule-count">0</strong>
+            </article>
+            <article class="metric-card">
+              <span>启用规则</span>
+              <strong id="rule-enabled-count">0</strong>
+            </article>
+            <article class="metric-card metric-card-wide">
+              <span>当前工作区</span>
+              <strong id="rule-current-label">新建规则</strong>
+            </article>
+          </div>
+
+          <div class="rules-layout">
+            <div class="rules-sidebar-column">
+              <label class="field field-compact">
+                <span>搜索规则</span>
+                <input id="rule-filter" type="text" placeholder="按 id / 标题 / 协议类型筛选">
+              </label>
+              <div id="rule-list" class="rule-list"></div>
+            </div>
+
+            <div class="rule-workbench">
+              <section class="rule-focus">
+                <div>
+                  <p class="eyebrow">Rule Workspace</p>
+                  <h3 id="rule-focus-title">新建规则</h3>
+                  <p id="rule-focus-copy" class="panel-note">当前工作区用于编辑规则 JSON。保存后会立即影响前端和 MCP 审计结果。</p>
+                </div>
+                <div id="rule-focus-meta" class="chip-row"></div>
+              </section>
+
+              <section class="rule-editor-shell">
+                <div class="rule-editor-head">
+                  <div>
+                    <h3>规则 JSON</h3>
+                    <p class="panel-note">若规则已有 `id`，保存时会更新；无 `id` 时会创建新规则。</p>
+                  </div>
+                  <div class="editor-actions">
+                    <button id="save-rule" class="button primary">保存规则</button>
+                    <button id="delete-rule" class="button danger">删除规则</button>
+                  </div>
+                </div>
+                <label class="field field-grow">
+                  <span>编辑内容</span>
+                  <textarea id="rule-editor" spellcheck="false"></textarea>
+                </label>
+              </section>
+
+              <section class="rule-guide">
+                <article class="guide-card">
+                  <span class="guide-label">Matcher</span>
+                  <p>`allPatterns` 全部命中，`anyPatterns` 命中任一，`nonePatterns` 表示不得出现。</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-label">Scope</span>
+                  <p>`contractTypes` 为空表示全局规则；填写后只会在对应协议类型下触发。</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-label">Safety</span>
+                  <p>修改后建议回首页立刻跑一次线上地址审计，确认规则是否真的命中预期。</p>
+                </article>
+              </section>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/rules.js"></script>
+  </body>
+</html>

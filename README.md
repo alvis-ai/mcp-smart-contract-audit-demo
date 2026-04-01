@@ -21,6 +21,11 @@ mcp-smart-contract-audit-demo/
 ├── .dockerignore
 ├── .npmignore
 ├── compose.yaml
+├── data/
+│   ├── audits.json
+│   ├── cache/
+│   ├── mpl/
+│   └── rules.json
 ├── deploy/
 │   ├── nginx.conf.example
 │   └── smart-contract-audit-mcp.service.example
@@ -35,15 +40,34 @@ mcp-smart-contract-audit-demo/
 ├── samples/
 │   ├── PowerLaunchPad.sol
 │   └── TreasureHunt.sol
+├── public/
+│   ├── app.js
+│   ├── client.js
+│   ├── index.html
+│   ├── rules.html
+│   ├── rules.js
+│   └── styles.css
 ├── scripts/
 │   ├── audit-address.js
-│   └── demo-client.js
+│   ├── demo-client.js
+│   └── validate.js
 ├── src/
 │   ├── analyzer.js
+│   ├── audit-queue.js
+│   ├── audit-store-local.js
+│   ├── audit-store-postgres.js
+│   ├── audit-store.js
+│   ├── audit-worker.js
+│   ├── database.js
+│   ├── dashboard-api.js
+│   ├── external-analyzers.js
 │   ├── http-server.js
 │   ├── knowledge-base.js
 │   ├── mcp-service.js
 │   ├── protocol.js
+│   ├── rule-store-local.js
+│   ├── rule-store-postgres.js
+│   ├── rule-store.js
 │   ├── sdk-http-server.js
 │   ├── sdk-server.js
 │   ├── sdk-shared.js
@@ -62,6 +86,25 @@ mcp-smart-contract-audit-demo/
 cd mcp-smart-contract-audit-demo
 npm install
 node src/server.js
+```
+
+如果要使用内置 Web Console：
+
+```bash
+cd mcp-smart-contract-audit-demo
+npm run start:sdk:http
+```
+
+然后访问：
+
+```text
+http://127.0.0.1:3000/
+```
+
+规则管理页：
+
+```text
+http://127.0.0.1:3000/rules.html
 ```
 
 另一个终端执行演示客户端：
@@ -120,6 +163,14 @@ node bin/smart-contract-audit-mcp.js --http --port 3000 --host 127.0.0.1
 cd mcp-smart-contract-audit-demo
 npm run start:sdk
 npm run start:sdk:http
+npm run start:worker
+```
+
+内部生产部署时，HTTP 服务和后台 worker 需要至少启动两个进程：
+
+```bash
+npm run start:sdk:http
+npm run start:worker
 ```
 
 如果要使用 Docker Compose：
@@ -129,6 +180,8 @@ cd mcp-smart-contract-audit-demo
 cp .env.example .env
 docker compose up --build
 ```
+
+`compose.yaml` 现在会同时启动 PostgreSQL、HTTP 服务和独立 worker，本地就能走和生产一致的外部数据库模式。
 
 ## 项目文档
 
@@ -142,7 +195,7 @@ docker compose up --build
 ### Tools
 
 1. `audit_contract_address`
-   根据线上合约地址抓取已验证的 Solidity 源码并进行静态规则检查。默认按 `Sourcify -> Etherscan V2 -> Blockscout` 顺序回退，发现 explorer 标记的代理合约时会继续跟踪实现合约源码。`chainId` 可选；不传时会扫描一组常见 EVM 链。
+   根据线上合约地址做组合审计。优先抓取已验证的 Solidity 源码做本地规则扫描，同时在配置了 RPC 和外部引擎时追加字节码分析。源码抓取默认按 `Sourcify -> Etherscan V2 -> Blockscout` 顺序回退，发现 explorer 标记的代理合约时会继续跟踪实现合约源码。`chainId` 可选；不传时会扫描一组常见 EVM 链。
 
 2. `audit_contract_file`
    读取本地 `.sol` 文件并进行静态规则检查，输出审计发现与建议。
@@ -156,6 +209,112 @@ docker compose up --build
 5. `generate_audit_checklist`
    基于项目类型生成领域审计清单。
 
+## Web Console
+
+项目现在内置了一个前端界面，用于：
+
+- 发起地址审计
+- 查看历史结果
+- 跳转到独立规则页管理共享规则
+
+首页只保留“审计操作”和“结果查看”。自定义规则管理已拆到独立页面 `/rules.html`，避免首页被规则编辑工作流干扰。
+前端与 MCP 工具共用同一套规则存储，因此在规则页里新增或修改规则后，MCP 调用会立即使用新规则。
+
+### 规则与结果存储
+
+- 生产模式：`DATABASE_URL` / `AUDIT_DATABASE_URL` 指向的 PostgreSQL
+- 本地开发回退：`data/rules.json`、`data/audits.json` 和 `data/audit-jobs.db`
+
+地址审计现在采用异步作业模型：
+
+- `queued`
+- `running`
+- `succeeded`
+- `failed`
+- `timeout`
+
+HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适合内部生产环境，避免单个请求长期占用 HTTP 连接。
+
+### 后端 API
+
+- `GET /api/rules`
+- `POST /api/rules`
+- `PUT /api/rules/:id`
+- `DELETE /api/rules/:id`
+- `GET /api/audits`
+- `GET /api/audits/:id`
+- `GET /api/audits/stats/queue`
+- `POST /api/audits/address`
+
+## 第三方分析引擎
+
+当前地址审计默认由两层组成：
+
+- 本地源码规则：针对已验证源码做快速协议规则扫描
+- 外部字节码分析：优先接入 Mythril，对链上地址经 RPC 做 EVM 字节码分析
+- 外部源码静态分析：可选接入 Slither（Docker 模式）做 Solidity 语义检测
+
+如果已配置 `AUDIT_RPC_URLS`，即使目标地址没有可用源码，也可以进入 `bytecode-only` 模式，尝试返回外部引擎结果。
+
+### Mythril 配置
+
+- `AUDIT_MYTHRIL_MODE=auto | binary | docker | off`
+- `AUDIT_MYTHRIL_BIN=myth`
+- `AUDIT_MYTHRIL_DOCKER_IMAGE=mythril/myth`
+- `AUDIT_MYTHRIL_TIMEOUT=90`
+
+默认 `auto` 会优先尝试本地 `myth` 命令，再回退到 Docker 镜像。
+
+### Slither 配置（Docker）
+
+- `AUDIT_SLITHER_MODE=off | docker | auto`
+- `AUDIT_SLITHER_DOCKER_IMAGE=trailofbits/slither`
+- `AUDIT_DOCKER_BIN=docker`
+
+当 `AUDIT_SLITHER_MODE=docker` 时，运行容器需要可用的 Docker CLI 和 `/var/run/docker.sock` 挂载。
+
+## 内部生产化改造
+
+当前版本已经补上这几项内部生产所需的基础能力：
+
+- PostgreSQL 外部数据库持久化规则、审计任务和 worker 状态
+- 独立后台 worker 进程，避免在 HTTP 请求里同步跑链上审计
+- 任务状态机：`queued / running / succeeded / failed / timeout`
+- 数据库租约领取与 worker 心跳，支持进程重启后的任务恢复
+- 自动重试机制，针对部分可恢复错误重新入队
+- 外部引擎执行超时控制
+- 基础结构化日志输出，便于后续接日志平台
+
+当前推荐的内部生产部署方式是 PostgreSQL + HTTP 服务 + 独立 worker。只要 `DATABASE_URL` 或 `AUDIT_DATABASE_URL` 指向同一个 PostgreSQL，HTTP 和 worker 就可以安全拆成多个实例。仓库仍保留本地文件 / SQLite 回退，主要用于无数据库时的本地开发和 `validate` 校验。
+
+相关环境变量：
+
+- `DATABASE_URL=postgresql://user:pass@host:5432/smart_contract_audit`
+- `AUDIT_DATABASE_URL=postgresql://user:pass@host:5432/smart_contract_audit`
+- `AUDIT_DATABASE_SSL=disable | require | verify-full`
+- `AUDIT_DATABASE_POOL_MAX=10`
+- `AUDIT_WORKER_CONCURRENCY=1`
+- `AUDIT_MAX_PENDING_JOBS=50`
+- `AUDIT_JOB_TIMEOUT_MS=180000`
+- `AUDIT_JOB_LEASE_MS=210000`
+- `AUDIT_RETRY_DELAY_MS=15000`
+- `AUDIT_MAX_ATTEMPTS=3`
+
+### Docker 镜像转存
+
+如果本机或服务器直接拉 `docker.io/mythril/myth` 不稳定，可以用仓库内置的 GitHub Actions workflow 先把镜像转存到你自己的 GHCR：
+
+- Workflow: [.github/workflows/mirror-mythril.yml](./.github/workflows/mirror-mythril.yml)
+- 默认源镜像：`docker.io/mythril/myth:latest`
+- 默认目标镜像：`ghcr.io/<your-owner>/mythril-myth:latest`
+
+转存完成后，把环境变量改成：
+
+```bash
+AUDIT_MYTHRIL_MODE=docker
+AUDIT_MYTHRIL_DOCKER_IMAGE=ghcr.io/<your-owner>/mythril-myth:latest
+```
+
 ## 线上合约审计说明
 
 - `audit_contract_address` 依赖目标合约已完成源码验证，默认会优先检查 Sourcify，其次回退到 Etherscan V2 和已配置的 Blockscout 浏览器。
@@ -168,6 +327,8 @@ docker compose up --build
 - 可通过 `AUDIT_ETHERSCAN_BASE_URL` 覆盖 Etherscan V2 API 地址。
 - 可通过 `AUDIT_BLOCKSCOUT_BASE_URLS=1=https://eth.blockscout.com/api/,8453=https://base.blockscout.com/api/` 覆盖或补充 Blockscout API 映射。
 - 可通过 `AUDIT_RPC_URLS=1=https://rpc.example,8453=https://rpc.example` 启用 RPC 槽位读取，用于在浏览器未提供 `Implementation` 字段时继续识别 EIP-1967 / Beacon 代理。
+- 可通过 `AUDIT_MYTHRIL_MODE`、`AUDIT_MYTHRIL_BIN`、`AUDIT_MYTHRIL_DOCKER_IMAGE` 配置外部字节码分析引擎 Mythril。
+- 可通过 `AUDIT_SLITHER_MODE`、`AUDIT_SLITHER_DOCKER_IMAGE` 配置外部源码静态分析引擎 Slither（Docker）。
 
 ## VS Code / IDE 接入
 

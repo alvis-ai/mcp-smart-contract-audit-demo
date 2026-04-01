@@ -1,0 +1,64 @@
+name: Mirror Mythril Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_image:
+        description: "Source image to mirror"
+        required: false
+        default: "docker.io/mythril/myth:latest"
+      target_image:
+        description: "Target GHCR image name without registry"
+        required: false
+        default: "mythril-myth"
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_IMAGE: ${{ inputs.source_image || 'docker.io/mythril/myth:latest' }}
+      TARGET_IMAGE_NAME: ${{ inputs.target_image || 'mythril-myth' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull source image
+        run: docker pull "${SOURCE_IMAGE}"
+
+      - name: Tag target images
+        id: target
+        run: |
+          TARGET_BASE="ghcr.io/${{ github.repository_owner }}/${TARGET_IMAGE_NAME}"
+          DATE_TAG="$(date +%Y%m%d)"
+          docker tag "${SOURCE_IMAGE}" "${TARGET_BASE}:latest"
+          docker tag "${SOURCE_IMAGE}" "${TARGET_BASE}:${DATE_TAG}"
+          echo "target_base=${TARGET_BASE}" >> "$GITHUB_OUTPUT"
+          echo "date_tag=${DATE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Push mirrored images
+        run: |
+          docker push "${{ steps.target.outputs.target_base }}:latest"
+          docker push "${{ steps.target.outputs.target_base }}:${{ steps.target.outputs.date_tag }}"
+
+      - name: Summarize mirror result
+        run: |
+          {
+            echo "## Mythril Mirror Result"
+            echo ""
+            echo "- Source: \`${SOURCE_IMAGE}\`"
+            echo "- Target latest: \`${{ steps.target.outputs.target_base }}:latest\`"
+            echo "- Target dated: \`${{ steps.target.outputs.target_base }}:${{ steps.target.outputs.date_tag }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

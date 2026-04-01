@@ -1,12 +1,12 @@
 [Unit]
-Description=Smart Contract Audit MCP HTTP Server
-After=network.target
+Description=Smart Contract Audit MCP Worker
+After=network.target smart-contract-audit-mcp.service
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/smart-contract-audit-mcp
 EnvironmentFile=/opt/smart-contract-audit-mcp/.env
-ExecStart=/usr/bin/node /opt/smart-contract-audit-mcp/src/sdk-http-server.js
+ExecStart=/usr/bin/node /opt/smart-contract-audit-mcp/src/audit-worker.js
 Restart=always
 RestartSec=5
 User=www-data

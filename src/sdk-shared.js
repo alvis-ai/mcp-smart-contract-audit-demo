@@ -27,10 +27,12 @@ function markdownFindings(result, includePath = "") {
     result.chainId ? `Chain: ${result.chainName || "unknown"} (${result.chainId})` : undefined,
     result.contractName ? `Contract: ${result.contractName}` : undefined,
     result.sourceRepository ? `Source provider: ${result.sourceRepository}` : undefined,
+    result.analysisMode ? `Analysis mode: ${result.analysisMode}` : undefined,
+    result.bytecodeSize ? `Bytecode size: ${result.bytecodeSize} bytes` : undefined,
     `Contract type: ${result.contractType}`,
     `Summary: ${result.summary}`,
     "",
-    "Findings:"
+    "Local Findings:"
   ].filter(Boolean);
 
   if (result.findings.length === 0) {
@@ -46,6 +48,17 @@ function markdownFindings(result, includePath = "") {
   if (result.missingSourceFiles?.length) {
     lines.push("");
     lines.push(`Warnings: ${result.missingSourceFiles.length} imported source file(s) could not be downloaded from ${result.sourceRepository || "the source provider"}.`);
+  }
+
+  if (Array.isArray(result.externalAnalyses) && result.externalAnalyses.length > 0) {
+    lines.push("");
+    lines.push("External Engines:");
+    for (const analysis of result.externalAnalyses) {
+      lines.push(`- ${analysis.engine}: ${analysis.summary}`);
+      for (const issue of analysis.issues || []) {
+        lines.push(`  - [${String(issue.severity || "info").toUpperCase()}] ${issue.title}`);
+      }
+    }
   }
 
   return lines.join("\n");
@@ -70,7 +83,7 @@ function registerTools(server) {
       "audit_contract_address",
     {
       title: "Audit Contract Address",
-      description: "Fetch a verified deployed contract by address from Sourcify, Etherscan V2 or Blockscout, following proxy implementations when explorer metadata exposes them.",
+      description: "Audit a deployed contract by address using verified-source retrieval plus optional bytecode analysis through external engines such as Mythril.",
       inputSchema: {
         address: z.string(),
         chainId: z.number().int().positive().optional(),
@@ -102,7 +115,7 @@ function registerTools(server) {
     },
     async ({ path, contractType }) => {
       try {
-        const audited = auditFile(path, { contractType });
+        const audited = await auditFile(path, { contractType });
         return {
           content: [{ type: "text", text: markdownFindings(audited, audited.path) }],
           structuredContent: audited
@@ -125,7 +138,7 @@ function registerTools(server) {
     },
     async ({ code, contractType }) => {
       try {
-        const audited = auditCode(code, { contractType });
+        const audited = await auditCode(code, { contractType });
         return {
           content: [{ type: "text", text: markdownFindings(audited) }],
           structuredContent: audited

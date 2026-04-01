@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const DEFAULT_SOURCIFY_BASE_URL = process.env.AUDIT_SOURCIFY_BASE_URL || "https://repo.sourcify.dev";
 const DEFAULT_ETHERSCAN_BASE_URL = process.env.AUDIT_ETHERSCAN_BASE_URL || "https://api.etherscan.io/v2/api";
 const IMPLEMENTATION_SLOT = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
@@ -35,6 +37,10 @@ const CHAIN_NAMES = new Map([
   [42161, "arbitrum"],
   [11155111, "sepolia"]
 ]);
+
+export function getChainName(chainId) {
+  return CHAIN_NAMES.get(chainId) || `chain-${chainId}`;
+}
 
 // Address validation happens early because the same address may be passed
 // across explorer APIs, Sourcify paths and RPC proxy-resolution calls.
@@ -435,6 +441,46 @@ async function callRpc(rpcUrl, method, params) {
   }
 
   return response?.result;
+}
+
+export async function fetchDeployedBytecode(address, options = {}) {
+  const requestedAddress = normalizeAddress(address);
+  const chainIds = resolveChainIds(options.chainId);
+  const rpcUrls = parseConfiguredRpcUrls();
+
+  if (rpcUrls.size === 0) {
+    throw new Error("No AUDIT_RPC_URLS are configured, so deployed bytecode cannot be fetched over RPC.");
+  }
+
+  const errors = [];
+
+  for (const chainId of chainIds) {
+    const rpcUrl = rpcUrls.get(chainId);
+    if (!rpcUrl) {
+      continue;
+    }
+
+    try {
+      const bytecode = await callRpc(rpcUrl, "eth_getCode", [requestedAddress, "latest"]);
+      if (typeof bytecode === "string" && bytecode !== "0x" && bytecode.length > 2) {
+        return {
+          address: requestedAddress,
+          chainId,
+          chainName: getChainName(chainId),
+          rpcUrl,
+          provider: "rpc",
+          bytecode,
+          bytecodeSize: Math.max(0, (bytecode.length - 2) / 2),
+          bytecodeHash: `0x${createHash("sha256").update(bytecode).digest("hex")}`
+        };
+      }
+    } catch (error) {
+      errors.push(`chain ${chainId}: ${error.message}`);
+    }
+  }
+
+  const suffix = errors.length > 0 ? ` First fetch error: ${errors[0]}` : "";
+  throw new Error(`No deployed bytecode was returned for ${requestedAddress} from the configured RPC endpoints.${suffix}`);
 }
 
 async function resolveProxyImplementationViaRpc(chainId, proxyAddress) {

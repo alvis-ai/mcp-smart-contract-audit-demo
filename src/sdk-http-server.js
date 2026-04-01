@@ -1,8 +1,13 @@
 import express from "express";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createSdkServer } from "./sdk-server.js";
+import { createDashboardRouter } from "./dashboard-api.js";
+import { getAuditQueueStats } from "./audit-queue.js";
+import { getAuditStorageMode } from "./audit-store.js";
+import { getRuleStorageMode } from "./rule-store.js";
 
 // Resolve runtime config from env so the same file can run locally, in Docker,
 // behind a reverse proxy, or on a PaaS without code changes.
@@ -59,18 +64,27 @@ export function createSdkHttpApp(config = {}) {
   };
 
   const app = express();
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const publicDir = path.join(__dirname, "..", "public");
   app.use(express.json({ limit: "2mb" }));
-  app.use(ensureAuthorized(resolved.authToken));
+  app.use(express.static(publicDir));
 
-  app.get("/healthz", (_req, res) => {
+  app.get("/healthz", async (_req, res) => {
     res.json({
       ok: true,
       transport: "sdk-streamable-http",
-      endpoint: resolved.endpointPath
+      endpoint: resolved.endpointPath,
+      storage: {
+        audits: getAuditStorageMode(),
+        rules: getRuleStorageMode()
+      },
+      queue: await getAuditQueueStats()
     });
   });
 
-  app.post(resolved.endpointPath, async (req, res) => {
+  app.use("/api", ensureAuthorized(resolved.authToken), createDashboardRouter());
+
+  app.post(resolved.endpointPath, ensureAuthorized(resolved.authToken), async (req, res) => {
     // Create a fresh SDK server/transport per request so Streamable HTTP session
     // handling stays aligned with the SDK transport implementation.
     if (!isInitializeRequest(req.body)) {
