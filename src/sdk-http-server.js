@@ -82,7 +82,9 @@ export function createSdkHttpApp(config = {}) {
     });
   });
 
-  app.use("/api", ensureAuthorized(resolved.authToken), createDashboardRouter());
+  // Dashboard APIs are intentionally public for browser usage.
+  // MCP endpoint keeps token protection below.
+  app.use("/api", createDashboardRouter());
 
   app.post(resolved.endpointPath, ensureAuthorized(resolved.authToken), async (req, res) => {
     // Create a fresh SDK server/transport per request so Streamable HTTP session
