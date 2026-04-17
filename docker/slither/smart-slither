@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--self-check" ]]; then
+  slither --version
+  solc --version | head -n 1 || true
+  exit 0
+fi
+
+target=""
+for arg in "$@"; do
+  if [[ "$arg" != -* ]]; then
+    target="$arg"
+    break
+  fi
+done
+
+if [[ -n "$target" && -f "$target" && -x "$(command -v solc-select)" ]]; then
+  pragma_line="$(grep -Eom1 'pragma[[:space:]]+solidity[[:space:]]+[^;]+' "$target" || true)"
+  pragma_version="$(printf '%s' "$pragma_line" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n 1 || true)"
+  if [[ -n "$pragma_version" ]]; then
+    if ! solc-select use "$pragma_version" >/dev/null 2>&1; then
+      solc-select install "$pragma_version" >/dev/null 2>&1
+      solc-select use "$pragma_version" >/dev/null 2>&1
+    fi
+  fi
+fi
+
+exec slither "$@"

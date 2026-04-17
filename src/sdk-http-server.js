@@ -7,7 +7,6 @@ import { createSdkServer } from "./sdk-server.js";
 import { createDashboardRouter } from "./dashboard-api.js";
 import { getAuditQueueStats } from "./audit-queue.js";
 import { getAuditStorageMode } from "./audit-store.js";
-import { getRuleStorageMode } from "./rule-store.js";
 
 // Resolve runtime config from env so the same file can run locally, in Docker,
 // behind a reverse proxy, or on a PaaS without code changes.
@@ -75,8 +74,7 @@ export function createSdkHttpApp(config = {}) {
       transport: "sdk-streamable-http",
       endpoint: resolved.endpointPath,
       storage: {
-        audits: getAuditStorageMode(),
-        rules: getRuleStorageMode()
+        audits: getAuditStorageMode()
       },
       queue: await getAuditQueueStats()
     });

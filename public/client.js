@@ -6,6 +6,14 @@ export function setStoredToken(token) {
   localStorage.setItem("audit-console-token", token);
 }
 
+export function getStoredLocale() {
+  return localStorage.getItem("audit-console-locale") || "";
+}
+
+export function setStoredLocale(locale) {
+  localStorage.setItem("audit-console-locale", locale);
+}
+
 export async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (!headers.has("content-type") && options.body) {
@@ -34,8 +42,8 @@ export async function api(path, options = {}) {
   return payload;
 }
 
-export function formatDate(value) {
-  return new Date(value).toLocaleString("zh-CN", {
+export function formatDate(value, locale = getStoredLocale() || navigator.language || "zh-CN") {
+  return new Date(value).toLocaleString(locale, {
     hour12: false
   });
 }

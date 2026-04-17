@@ -10,26 +10,33 @@
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <p class="eyebrow">MCP Audit Console</p>
-          <h1>链上审计台</h1>
-          <p class="brand-copy">输入地址直接发起链上审计，优先拉取已验证源码，同时支持接入外部字节码分析引擎。</p>
+          <div class="brand-bar">
+            <p class="eyebrow" data-i18n="brand.eyebrow">MCP Audit Console</p>
+            <div class="locale-switch" aria-label="Language switcher">
+              <button id="locale-zh" type="button" class="locale-button" data-locale="zh-CN">中文</button>
+              <button id="locale-en" type="button" class="locale-button" data-locale="en-US">EN</button>
+            </div>
+          </div>
+          <h1 data-i18n="brand.title">链上审计台</h1>
+          <p class="brand-copy" data-i18n="brand.copy">基于 Slither / Mythril 的链上合约检测台。源码可得时优先走源码分析，代理合约会继续跟踪实现合约。</p>
         </div>
 
         <section class="panel token-panel">
           <div class="panel-head">
-            <h2>API Token</h2>
+            <h2 data-i18n="token.title">MCP Token</h2>
           </div>
           <label class="field">
-            <span>Bearer Token</span>
-            <input id="token-input" type="password" placeholder="可选，若服务端启用了 MCP_AUTH_TOKEN">
+            <span data-i18n="token.label">Bearer Token</span>
+            <input id="token-input" type="password" data-i18n-placeholder="token.placeholder" placeholder="可选，仅在你手动调用 /mcp 时需要">
           </label>
-          <button id="save-token" class="button subtle">保存 Token</button>
+          <p class="panel-note" data-i18n="token.note">当前 Web 页面调用的是公开 /api；只有直接访问 /mcp 时才需要 token。</p>
+          <button id="save-token" class="button subtle" data-i18n="token.save">保存 Token</button>
         </section>
 
         <section class="panel history-panel">
           <div class="panel-head">
-            <h2>审计历史</h2>
-            <button id="refresh-audits" class="button subtle">刷新</button>
+            <h2 data-i18n="history.title">审计历史</h2>
+            <button id="refresh-audits" class="button subtle" data-i18n="history.refresh">刷新</button>
           </div>
           <div id="audit-list" class="audit-list"></div>
         </section>
@@ -38,25 +45,25 @@
       <main class="main">
         <section class="hero">
           <div class="hero-intro">
-            <p class="eyebrow">Audit Operations</p>
-            <h2>线上合约审计</h2>
-            <p class="hero-copy">输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入第三方字节码分析引擎。</p>
+            <p class="eyebrow" data-i18n="hero.eyebrow">Audit Operations</p>
+            <h2 data-i18n="hero.title">线上合约审计</h2>
+            <p class="hero-copy" data-i18n="hero.copy">输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入 Slither 与 Mythril。</p>
             <div class="hero-flow">
-              <span class="hero-step">01 Source/Bytecode</span>
-              <span class="hero-step">02 Local Rules</span>
-              <span class="hero-step">03 External Engine</span>
+              <span class="hero-step" data-i18n="hero.step1">01 Source / Implementation</span>
+              <span class="hero-step" data-i18n="hero.step2">02 Slither</span>
+              <span class="hero-step" data-i18n="hero.step3">03 Mythril</span>
             </div>
-            <p class="hero-note">源码优先，字节码兜底；本地规则与外部引擎并行给出证据。</p>
+            <p class="hero-note" data-i18n="hero.note">源码分析与字节码分析尽量对准同一实现合约；没有源码时仅保留字节码引擎。</p>
           </div>
           <form id="audit-form" class="audit-form">
             <label class="field span-2">
-              <span>合约地址</span>
+              <span data-i18n="form.address">合约地址</span>
               <input id="audit-address" type="text" placeholder="0x..." required>
             </label>
             <label class="field">
-              <span>网络</span>
+              <span data-i18n="form.network">网络</span>
               <select id="audit-network">
-                <option value="">我不确定，自动识别</option>
+                <option value="" data-i18n="network.auto">我不确定，自动识别</option>
                 <option value="1">Ethereum</option>
                 <option value="56">BNB Smart Chain</option>
                 <option value="8453">Base</option>
@@ -70,14 +77,14 @@
                 <option value="100">Gnosis</option>
                 <option value="11155111">Sepolia</option>
                 <option value="97">BSC Testnet</option>
-                <option value="custom">自定义 Chain ID</option>
+                <option value="custom" data-i18n="network.custom">自定义 Chain ID</option>
               </select>
-              <small class="panel-note">如果你只知道合约在 Base、BSC、Ethereum 这类网络上，直接选名字即可。</small>
+              <small class="panel-note" data-i18n="form.networkNote">如果你只知道合约在哪条常见 EVM 链上，直接选择网络即可。</small>
             </label>
             <label class="field">
-              <span>协议类型</span>
+              <span data-i18n="form.protocol">协议类型</span>
               <select id="audit-contract-type">
-                <option value="">自动识别</option>
+                <option value="" data-i18n="protocol.auto">自动识别</option>
                 <option value="general">general</option>
                 <option value="launchpad">launchpad</option>
                 <option value="nft">nft</option>
@@ -86,21 +93,21 @@
               </select>
             </label>
             <label id="audit-chain-id-field" class="field span-2" hidden>
-              <span>自定义 Chain ID</span>
-              <input id="audit-chain-id" type="number" min="1" placeholder="如 324 / 59144">
-              <small class="panel-note">只有在网络列表里找不到目标链时，才需要填写这项。</small>
+              <span data-i18n="form.chainId">自定义 Chain ID</span>
+              <input id="audit-chain-id" type="number" min="1" data-i18n-placeholder="form.chainIdPlaceholder" placeholder="如 324 / 59144">
+              <small class="panel-note" data-i18n="form.chainIdNote">只有在网络列表里找不到目标链时，才需要填写这项。</small>
             </label>
-            <button class="button primary span-2" type="submit">发起审计</button>
+            <button class="button primary span-2" type="submit" data-i18n="form.submit">发起审计</button>
           </form>
         </section>
 
         <section class="content-grid content-grid-home">
           <section class="panel result-panel">
             <div class="panel-head">
-              <h2>结果详情</h2>
-              <span id="result-meta" class="panel-note">选择一条审计记录后查看</span>
+              <h2 data-i18n="result.title">结果详情</h2>
+              <span id="result-meta" class="panel-note" data-i18n="result.metaEmpty">选择一条审计记录后查看</span>
             </div>
-            <div id="result-view" class="result-view empty-state">
+            <div id="result-view" class="result-view empty-state" data-i18n="result.empty">
               还没有选中的审计结果。
             </div>
           </section>
@@ -108,26 +115,29 @@
           <div class="side-stack">
             <section class="panel action-panel">
               <div class="panel-head">
-                <h2>规则管理</h2>
+                <h2 data-i18n="guidance.title">检测栈</h2>
               </div>
-              <p class="panel-note">自定义规则不再放在首页编辑，避免审计主流程被大段 JSON 干扰。</p>
-              <a class="button primary button-link" href="/rules.html">进入规则管理页</a>
+              <div class="guide-stack">
+                <article class="guide-card">
+                  <span class="guide-label" data-i18n="guidance.sourceLabel">Source / Implementation</span>
+                  <p data-i18n="guidance.sourceCopy">先抓已验证源码；代理合约会继续跟踪实现合约，避免源码和字节码分析目标错位。</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-label">Slither</span>
+                  <p data-i18n="guidance.slitherCopy">源码存在时执行静态检测，优先覆盖常见 Solidity 缺陷与代码味道。</p>
+                </article>
+                <article class="guide-card">
+                  <span class="guide-label">Mythril</span>
+                  <p data-i18n="guidance.mythrilCopy">通过 RPC 直接分析链上字节码，没有源码时仍可给出基础漏洞信号。</p>
+                </article>
+              </div>
             </section>
 
             <section class="panel action-panel">
               <div class="panel-head">
-                <h2>分析引擎</h2>
+                <h2 data-i18n="boundary.title">使用边界</h2>
               </div>
-              <div class="guide-stack">
-                <article class="guide-card">
-                  <span class="guide-label">Local Rules</span>
-                  <p>基于源码文本规则快速做协议级安全筛查，适合补充业务场景知识。</p>
-                </article>
-                <article class="guide-card">
-                  <span class="guide-label">External Engine</span>
-                  <p>可选接入 Mythril，对链上合约地址经 RPC 做 EVM 字节码分析，不再局限于已验证源码。</p>
-                </article>
-              </div>
+              <p class="panel-note" data-i18n="boundary.copy">这是一个第三方分析器聚合台，不会因为“未报问题”就等于安全。目标是更可靠地发现基础漏洞，不替代正式审计。</p>
             </section>
           </div>
         </section>
@@ -138,7 +148,10 @@
       <article class="finding">
         <div class="finding-head">
           <span class="badge"></span>
-          <h3></h3>
+          <div class="finding-title-wrap">
+            <h3></h3>
+            <p class="finding-source panel-note"></p>
+          </div>
         </div>
         <p class="finding-why"></p>
         <p class="finding-fix"></p>

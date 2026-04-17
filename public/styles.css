@@ -69,6 +69,13 @@ body {
   gap: 8px;
 }
 
+.brand-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .brand h1,
 .hero h2,
 .panel h2,
@@ -168,6 +175,31 @@ body {
   gap: 10px;
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.locale-switch {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.locale-button {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.locale-button.active {
+  background: var(--accent);
+  color: white;
 }
 
 .content-grid {
@@ -421,6 +453,12 @@ textarea {
   justify-content: space-between;
   gap: 10px;
   align-items: start;
+}
+
+.finding-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .rule-card-header {

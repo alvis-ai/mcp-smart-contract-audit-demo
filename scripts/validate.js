@@ -13,8 +13,8 @@ const filesToCheck = [
   "bin/smart-contract-audit-mcp.js",
   "public/app.js",
   "public/client.js",
-  "public/rules.js",
   "scripts/audit-address.js",
+  "scripts/benchmark-engines.js",
   "scripts/demo-client.js",
   "src/analyzer.js",
   "src/audit-queue.js",
@@ -26,7 +26,6 @@ const filesToCheck = [
   "src/knowledge-base.js",
   "src/mcp-service.js",
   "src/protocol.js",
-  "src/rule-store.js",
   "src/sdk-http-server.js",
   "src/sdk-server.js",
   "src/sdk-shared.js",
@@ -68,46 +67,6 @@ function runCommand(args, options = {}) {
 async function checkSyntax() {
   for (const file of filesToCheck) {
     await runCommand(["--check", file]);
-  }
-}
-
-async function validateRuleStore() {
-  const { getRules, createRule, updateRule, deleteRule } = await import(`../src/rule-store.js?rules=${Date.now()}`);
-  const before = await getRules();
-  const created = await createRule({
-    title: "Validation Rule",
-    enabled: true,
-    severity: "low",
-    rationale: "Validation-only rule.",
-    recommendation: "No action.",
-    contractTypes: [],
-    allPatterns: [{ type: "includes", value: "validation-marker" }],
-    anyPatterns: [],
-    nonePatterns: []
-  });
-
-  if (!(await getRules()).some((rule) => rule.id === created.id)) {
-    throw new Error("Rule store createRule did not persist the new rule.");
-  }
-
-  await updateRule(created.id, {
-    ...created,
-    title: "Validation Rule Updated"
-  });
-
-  const updated = (await getRules()).find((rule) => rule.id === created.id);
-  if (updated?.title !== "Validation Rule Updated") {
-    throw new Error("Rule store updateRule did not persist the updated title.");
-  }
-
-  await deleteRule(created.id);
-  const after = await getRules();
-  if (after.some((rule) => rule.id === created.id)) {
-    throw new Error("Rule store deleteRule did not remove the rule.");
-  }
-
-  if (before.length !== after.length) {
-    throw new Error("Rule store did not return to the original rule count after validation.");
   }
 }
 
@@ -496,6 +455,147 @@ async function validateProxyExplorerFallback() {
   }
 }
 
+async function validateProxyAnalysisTargetConsistency() {
+  // Once verified source resolves a proxy implementation, bytecode fetching and
+  // address-based external analysis must follow the same implementation target.
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.AUDIT_ETHERSCAN_API_KEY;
+  const originalBaseUrl = process.env.AUDIT_ETHERSCAN_BASE_URL;
+  const originalRpcUrls = process.env.AUDIT_RPC_URLS;
+  const originalSlitherMode = process.env.AUDIT_SLITHER_MODE;
+  const originalMythrilMode = process.env.AUDIT_MYTHRIL_MODE;
+  const activeExplorerBaseUrl = process.env.AUDIT_ETHERSCAN_BASE_URL || "https://api.etherscan.io/v2/api";
+
+  process.env.AUDIT_ETHERSCAN_API_KEY = "test-key";
+  process.env.AUDIT_RPC_URLS = "1=https://rpc.example";
+  process.env.AUDIT_SLITHER_MODE = "off";
+  process.env.AUDIT_MYTHRIL_MODE = "off";
+
+  globalThis.fetch = async (url, init = {}) => {
+    const asString = String(url);
+    const requestedAddress = asString.startsWith(activeExplorerBaseUrl)
+      ? new URL(asString).searchParams.get("address")?.toLowerCase()
+      : "";
+
+    if (asString.startsWith("https://repo.sourcify.dev/")) {
+      return new Response("not found", { status: 404 });
+    }
+
+    if (asString.startsWith(activeExplorerBaseUrl)) {
+      if (requestedAddress === "0x5555555555555555555555555555555555555555") {
+        return new Response(JSON.stringify({
+          status: "1",
+          message: "OK",
+          result: [
+            {
+              SourceCode: "pragma solidity ^0.8.20; contract ProxyFacade {}",
+              ABI: "[]",
+              ContractName: "ProxyFacade",
+              CompilerVersion: "v0.8.20+commit.demo",
+              ContractFileName: "contracts/ProxyFacade.sol",
+              Proxy: "1",
+              Implementation: "0x4444444444444444444444444444444444444444"
+            }
+          ]
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      if (requestedAddress === "0x4444444444444444444444444444444444444444") {
+        return new Response(JSON.stringify({
+          status: "1",
+          message: "OK",
+          result: [
+            {
+              SourceCode: "{{\"language\":\"Solidity\",\"sources\":{\"contracts/AlignedImplementation.sol\":{\"content\":\"pragma solidity ^0.8.20; contract AlignedImplementation { uint256 public value; function set(uint256 next) external { value = next; } }\"}},\"settings\":{\"compilationTarget\":{\"contracts/AlignedImplementation.sol\":\"AlignedImplementation\"}}}}",
+              ABI: "[]",
+              ContractName: "AlignedImplementation",
+              CompilerVersion: "v0.8.20+commit.demo",
+              ContractFileName: "contracts/AlignedImplementation.sol",
+              Proxy: "0",
+              Implementation: ""
+            }
+          ]
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+    }
+
+    if (asString === "https://rpc.example" && init.method === "POST") {
+      const body = JSON.parse(init.body);
+      if (body.method === "eth_getCode") {
+        const [targetAddress] = body.params;
+        if (targetAddress === "0x4444444444444444444444444444444444444444") {
+          return new Response(JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: "0x60006000556001600055"
+          }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          });
+        }
+
+        return new Response(JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: "0x"
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  try {
+    const { auditAddress } = await import(`../src/analyzer.js?proxy-target=${Date.now()}`);
+    const result = await auditAddress("0x5555555555555555555555555555555555555555", { chainId: 1 });
+
+    if (result.analysisAddress !== "0x4444444444444444444444444444444444444444") {
+      throw new Error(`Expected analysis target to switch to implementation address, got ${result.analysisAddress || "unknown"}.`);
+    }
+
+    if (result.bytecodeAddress !== "0x4444444444444444444444444444444444444444") {
+      throw new Error(`Expected bytecode fetch to target implementation address, got ${result.bytecodeAddress || "unknown"}.`);
+    }
+
+    if (result.proxyAddress !== "0x5555555555555555555555555555555555555555") {
+      throw new Error("Expected proxy address to remain the originally requested address.");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (typeof originalApiKey === "undefined") {
+      delete process.env.AUDIT_ETHERSCAN_API_KEY;
+    } else {
+      process.env.AUDIT_ETHERSCAN_API_KEY = originalApiKey;
+    }
+    if (typeof originalBaseUrl === "undefined") delete process.env.AUDIT_ETHERSCAN_BASE_URL;
+    else process.env.AUDIT_ETHERSCAN_BASE_URL = originalBaseUrl;
+    if (typeof originalRpcUrls === "undefined") {
+      delete process.env.AUDIT_RPC_URLS;
+    } else {
+      process.env.AUDIT_RPC_URLS = originalRpcUrls;
+    }
+    if (typeof originalSlitherMode === "undefined") {
+      delete process.env.AUDIT_SLITHER_MODE;
+    } else {
+      process.env.AUDIT_SLITHER_MODE = originalSlitherMode;
+    }
+    if (typeof originalMythrilMode === "undefined") {
+      delete process.env.AUDIT_MYTHRIL_MODE;
+    } else {
+      process.env.AUDIT_MYTHRIL_MODE = originalMythrilMode;
+    }
+  }
+}
+
 async function validateRpcProxyFallback() {
   // When explorer metadata is incomplete, RPC slot inspection should still be
   // able to resolve a standard EIP-1967 proxy implementation.
@@ -626,13 +726,13 @@ async function validateRpcProxyFallback() {
 
 async function main() {
   await checkSyntax();
-  await validateRuleStore();
   await validateAuditStore();
   await validateAddressAuditWithBytecodeFallback();
   await validateCustomRpc();
   await validateSdkStdio();
   await validateExplorerFallback();
   await validateProxyExplorerFallback();
+  await validateProxyAnalysisTargetConsistency();
   await validateRpcProxyFallback();
   process.stdout.write("Validation passed.\n");
 }

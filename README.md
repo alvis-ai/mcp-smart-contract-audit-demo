@@ -23,9 +23,9 @@ mcp-smart-contract-audit-demo/
 ├── compose.yaml
 ├── data/
 │   ├── audits.json
+│   ├── benchmark-cases.json
 │   ├── cache/
-│   ├── mpl/
-│   └── rules.json
+│   └── mpl/
 ├── deploy/
 │   ├── nginx.conf.example
 │   └── smart-contract-audit-mcp.service.example
@@ -44,11 +44,10 @@ mcp-smart-contract-audit-demo/
 │   ├── app.js
 │   ├── client.js
 │   ├── index.html
-│   ├── rules.html
-│   ├── rules.js
 │   └── styles.css
 ├── scripts/
 │   ├── audit-address.js
+│   ├── benchmark-engines.js
 │   ├── demo-client.js
 │   └── validate.js
 ├── src/
@@ -99,12 +98,6 @@ npm run start:sdk:http
 
 ```text
 http://127.0.0.1:3000/
-```
-
-规则管理页：
-
-```text
-http://127.0.0.1:3000/rules.html
 ```
 
 另一个终端执行演示客户端：
@@ -178,7 +171,8 @@ npm run start:worker
 ```bash
 cd mcp-smart-contract-audit-demo
 cp .env.example .env
-docker compose up --build
+docker compose --profile tooling build smart-contract-audit-slither-image smart-contract-audit-mcp-http smart-contract-audit-mcp-worker
+docker compose up -d smart-contract-audit-db smart-contract-audit-mcp-http smart-contract-audit-mcp-worker
 ```
 
 `compose.yaml` 现在会同时启动 PostgreSQL、HTTP 服务和独立 worker，本地就能走和生产一致的外部数据库模式。
@@ -195,10 +189,10 @@ docker compose up --build
 ### Tools
 
 1. `audit_contract_address`
-   根据线上合约地址做组合审计。优先抓取已验证的 Solidity 源码做本地规则扫描，同时在配置了 RPC 和外部引擎时追加字节码分析。源码抓取默认按 `Sourcify -> Etherscan V2 -> Blockscout` 顺序回退，发现 explorer 标记的代理合约时会继续跟踪实现合约源码。`chainId` 可选；不传时会扫描一组常见 EVM 链。
+   根据线上合约地址做组合审计。优先抓取已验证的 Solidity 源码并交给 Slither，随后在配置了 RPC 和外部引擎时追加 Mythril 字节码分析。源码抓取默认按 `Sourcify -> Etherscan V2 -> Blockscout` 顺序回退；发现代理合约时，源码分析和字节码分析都会继续跟踪实现合约，避免目标不一致。`chainId` 可选；不传时会扫描一组常见 EVM 链。
 
 2. `audit_contract_file`
-   读取本地 `.sol` 文件并进行静态规则检查，输出审计发现与建议。
+   读取本地 `.sol` 文件并调用第三方源码分析器（当前主要是 Slither），输出检测结果与建议。
 
 3. `audit_contract_code`
    直接审计传入的 Solidity 代码，适合编辑器内联调用。
@@ -215,15 +209,15 @@ docker compose up --build
 
 - 发起地址审计
 - 查看历史结果
-- 跳转到独立规则页管理共享规则
+- 切换中英文界面
+- 查看第三方分析器的统一检测结果与分引擎输出
 
-首页只保留“审计操作”和“结果查看”。自定义规则管理已拆到独立页面 `/rules.html`，避免首页被规则编辑工作流干扰。
-前端与 MCP 工具共用同一套规则存储，因此在规则页里新增或修改规则后，MCP 调用会立即使用新规则。
+首页现在只保留“审计操作”和“结果查看”，不再暴露本地规则管理。
 
 ### 规则与结果存储
 
 - 生产模式：`DATABASE_URL` / `AUDIT_DATABASE_URL` 指向的 PostgreSQL
-- 本地开发回退：`data/rules.json`、`data/audits.json` 和 `data/audit-jobs.db`
+- 本地开发回退：`data/audits.json` 和 `data/audit-jobs.db`
 
 地址审计现在采用异步作业模型：
 
@@ -237,10 +231,6 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 
 ### 后端 API
 
-- `GET /api/rules`
-- `POST /api/rules`
-- `PUT /api/rules/:id`
-- `DELETE /api/rules/:id`
 - `GET /api/audits`
 - `GET /api/audits/:id`
 - `GET /api/audits/stats/queue`
@@ -250,11 +240,17 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 
 当前地址审计默认由两层组成：
 
-- 本地源码规则：针对已验证源码做快速协议规则扫描
-- 外部字节码分析：优先接入 Mythril，对链上地址经 RPC 做 EVM 字节码分析
-- 外部源码静态分析：可选接入 Slither（Docker 模式）做 Solidity 语义检测
+- 外部源码静态分析：优先接入 Slither（Docker 模式）做 Solidity 语义检测
+- 外部字节码分析：接入 Mythril，对链上地址经 RPC 做 EVM 字节码分析
+- 统一问题视图：将第三方分析器返回的问题归一化到同一结果结构中展示
 
 如果已配置 `AUDIT_RPC_URLS`，即使目标地址没有可用源码，也可以进入 `bytecode-only` 模式，尝试返回外部引擎结果。
+
+### 基准回归
+
+- `npm run benchmark:engines`
+
+基准脚本会读取 `data/benchmark-cases.json`，对固定样例执行第三方分析器，确保后续升级时至少不会回归到“链路通了但检不出基准问题”的状态。
 
 ### Mythril 配置
 
@@ -268,10 +264,15 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 ### Slither 配置（Docker）
 
 - `AUDIT_SLITHER_MODE=off | docker | auto`
-- `AUDIT_SLITHER_DOCKER_IMAGE=trailofbits/slither`
+- `AUDIT_SLITHER_DOCKER_IMAGE=smart-contract-audit-slither:local`
+- `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`
+- `AUDIT_SLITHER_ANALYZER_VERSION=`：可选，固定 `slither-analyzer` 版本
+- `AUDIT_SLITHER_SOLC_VERSIONS=0.4.26,0.5.17,0.6.12,0.7.6,0.8.20,0.8.24`：预装 `solc` 版本列表
+- `AUDIT_SLITHER_PIP_INDEX_URL=https://pypi.org/simple`
+- `AUDIT_SLITHER_PIP_TRUSTED_HOST=`：国内网络可改为自有或镜像源
 - `AUDIT_DOCKER_BIN=docker`
 
-当 `AUDIT_SLITHER_MODE=docker` 时，运行容器需要可用的 Docker CLI 和 `/var/run/docker.sock` 挂载。
+项目现在内置了一份可构建的 Slither 镜像定义：`docker/slither/Dockerfile`。推荐先用 compose 构建这份镜像，再启动 HTTP/worker 服务。镜像会预装 `solc-select` 和一组常见 Solidity 编译器版本，并通过 `smart-slither` 自动根据 `pragma solidity` 切换编译器。Apple Silicon / ARM 主机默认建议使用 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。
 
 ## 内部生产化改造
 

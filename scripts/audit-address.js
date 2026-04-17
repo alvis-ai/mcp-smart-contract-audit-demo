@@ -46,17 +46,18 @@ function formatFindings(result) {
     `Compiler: ${result.compilerVersion}`,
     `Match: ${result.matchType}`,
     `Analysis mode: ${result.analysisMode || "source-only"}`,
+    `Analysis target: ${result.analysisAddress || result.address}`,
     `Contract type: ${result.contractType}`,
     `Summary: ${result.summary}`,
     "",
-    "Local Findings:"
+    "Detected Issues:"
   ];
 
   if (result.findings.length === 0) {
-    lines.push("- No findings triggered by the local ruleset.");
+    lines.push("- No issues were reported by the configured third-party analyzers.");
   } else {
     for (const finding of result.findings) {
-      lines.push(`- [${finding.severity.toUpperCase()}] ${finding.title}`);
+      lines.push(`- [${finding.severity.toUpperCase()}] ${finding.title}${finding.engine ? ` (${finding.engine})` : ""}`);
       lines.push(`  Why: ${finding.rationale}`);
       lines.push(`  Fix: ${finding.recommendation}`);
     }

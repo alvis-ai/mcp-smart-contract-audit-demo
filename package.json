@@ -22,6 +22,9 @@
     "start:bin": "node bin/smart-contract-audit-mcp.js",
     "demo": "node scripts/demo-client.js",
     "audit:address": "node scripts/audit-address.js",
+    "benchmark:engines": "node scripts/benchmark-engines.js",
+    "docker:build:slither": "docker compose --profile tooling build smart-contract-audit-slither-image",
+    "docker:up": "docker compose up -d smart-contract-audit-db smart-contract-audit-mcp-http smart-contract-audit-mcp-worker",
     "validate": "node scripts/validate.js"
   }
 }

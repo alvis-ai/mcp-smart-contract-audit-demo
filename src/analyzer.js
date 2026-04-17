@@ -5,8 +5,10 @@ import {
   fetchDeployedBytecode,
   fetchVerifiedContractSource
 } from "./verified-source.js";
-import { getRules } from "./rule-store.js";
-import { runExternalAddressAnalyses } from "./external-analyzers.js";
+import {
+  runExternalAddressAnalyses,
+  runExternalSourceAnalyses
+} from "./external-analyzers.js";
 
 // Domain auto-detection is best-effort only. It exists to choose a more useful
 // checklist / finding context when the caller does not provide a contractType.
@@ -30,71 +32,67 @@ function detectContractType(code, fallbackType = "") {
   return "general";
 }
 
-// The summary is short by design because IDE integrations surface it first and
-// full findings are rendered below.
-function makeSummary(contractType, findings) {
-  const severeCount = findings.filter((item) => item.severity === "critical" || item.severity === "high").length;
-  if (findings.length === 0) {
-    return `No rule-based findings were triggered. ${contractType} contract still requires manual business-logic review.`;
-  }
-  return `${contractType} contract audit finished with ${findings.length} findings, including ${severeCount} high-severity items.`;
+function countSevere(findings) {
+  return findings.filter((item) => item.severity === "critical" || item.severity === "high").length;
 }
 
-function makeAddressSummary(contractType, findings, externalAnalyses, analysisMode, sourceAvailable) {
-  const severeCount = findings.filter((item) => item.severity === "critical" || item.severity === "high").length;
-  const externalIssueCount = externalAnalyses
+function countExternalIssues(externalAnalyses) {
+  return externalAnalyses
     .filter((analysis) => analysis.status === "ok")
     .reduce((count, analysis) => count + (analysis.issueCount || 0), 0);
-
-  if (sourceAvailable) {
-    return `${contractType} contract audit finished in ${analysisMode} mode with ${findings.length} local findings, ${severeCount} high-severity local items, and ${externalIssueCount} external engine issue(s).`;
-  }
-
-  return `${contractType} contract audit finished in ${analysisMode} mode without verified source. Local rules were skipped, and external engines reported ${externalIssueCount} issue(s).`;
 }
 
-function matchesPattern(code, pattern) {
-  if (pattern.type === "includes") {
-    return code.includes(pattern.value);
-  }
-
-  return new RegExp(pattern.value, pattern.flags || "").test(code);
+function collectDetectedFindings(externalAnalyses) {
+  return externalAnalyses.flatMap((analysis) => (analysis.issues || []).map((issue, index) => ({
+    id: `${analysis.engine || "engine"}-${issue.swcId || issue.functionName || issue.pc || index}`,
+    severity: issue.severity || "info",
+    title: issue.title || "Unnamed issue",
+    rationale: issue.description || analysis.summary || "The external analyzer reported this issue without additional detail.",
+    recommendation: "Review the affected path, confirm exploitability manually, and patch the underlying contract logic before deployment.",
+    engine: analysis.engine || "engine",
+    engineTitle: analysis.title || analysis.engine || "External analysis",
+    swcId: issue.swcId || "",
+    functionName: issue.functionName || "",
+    pc: typeof issue.pc === "number" ? issue.pc : null
+  })));
 }
 
-function matchesRule(rule, code, contractType) {
-  if (!rule.enabled) {
-    return false;
+// The summary is short by design because IDE integrations surface it first and
+// full findings are rendered below.
+function makeSummary(contractType, findings, externalAnalyses, analysisMode, sourceAvailable) {
+  const severeCount = countSevere(findings);
+  const externalIssueCount = countExternalIssues(externalAnalyses);
+  const availableEngineCount = externalAnalyses.filter((analysis) => analysis.status === "ok").length;
+
+  if (availableEngineCount === 0) {
+    return `${contractType} contract analysis could not run any third-party engine in ${analysisMode} mode. Check Slither/Mythril configuration before trusting the result.`;
   }
 
-  if (rule.contractTypes.length > 0 && !rule.contractTypes.includes(contractType)) {
-    return false;
+  if (findings.length === 0) {
+    return `${contractType} contract analysis completed in ${analysisMode} mode${sourceAvailable ? " with verified source" : ""}. Third-party engines reported no issues, but manual review is still required.`;
   }
 
-  const allPass = rule.allPatterns.every((pattern) => matchesPattern(code, pattern));
-  const anyPass = rule.anyPatterns.length === 0 || rule.anyPatterns.some((pattern) => matchesPattern(code, pattern));
-  const nonePass = rule.nonePatterns.every((pattern) => !matchesPattern(code, pattern));
-
-  return allPass && anyPass && nonePass;
+  return `${contractType} contract analysis completed in ${analysisMode} mode with ${externalIssueCount} issue(s), including ${severeCount} high-severity item(s), from ${availableEngineCount} third-party engine(s).`;
 }
 
 export async function auditCode(code, options = {}) {
-  // Evaluate every rule against the same source blob, then normalize to a
-  // compact structure that works for CLI, custom MCP and SDK MCP outputs.
+  // Source-code audit is intentionally delegated to third-party analyzers so
+  // the demo moves closer to real static-analysis workflows.
   const contractType = detectContractType(code, options.contractType);
-  const findings = (await getRules())
-    .filter((rule) => matchesRule(rule, code, contractType))
-    .map((rule) => ({
-      id: rule.id,
-      severity: rule.severity,
-      title: rule.title,
-      rationale: rule.rationale,
-      recommendation: rule.recommendation
-    }));
+  const externalAnalyses = await runExternalSourceAnalyses({
+    sourceCode: code,
+    contractName: options.contractName || "",
+    primarySourcePath: options.primarySourcePath || ""
+  });
+  const findings = collectDetectedFindings(externalAnalyses);
 
   return {
     contractType,
-    summary: makeSummary(contractType, findings),
-    findings
+    summary: makeSummary(contractType, findings, externalAnalyses, "source-static", true),
+    findings,
+    externalAnalyses,
+    analysisMode: "source-static",
+    hasVerifiedSource: true
   };
 }
 
@@ -110,14 +108,18 @@ export async function auditFile(relativePath, options = {}) {
   return {
     path: safePath,
     code,
-    ...(await auditCode(code, options))
+    ...(await auditCode(code, {
+      ...options,
+      contractName: path.basename(safePath, path.extname(safePath)),
+      primarySourcePath: safePath
+    }))
   };
 }
 
 export async function auditAddress(address, options = {}) {
   // Address-based audit now supports two parallel evidence sources:
-  // 1. verified source code, used for local rules
-  // 2. deployed bytecode + optional external engines such as Mythril
+  // 1. verified source code, passed to source analyzers such as Slither
+  // 2. deployed bytecode + optional bytecode analyzers such as Mythril
   let sourceContract = null;
   let sourceError = "";
 
@@ -130,16 +132,17 @@ export async function auditAddress(address, options = {}) {
   let bytecodeContract = null;
   let bytecodeError = "";
   const preferredChainId = sourceContract?.chainId || options.chainId;
+  const analysisAddress = sourceContract?.sourceAddress || sourceContract?.implementationAddress || address;
 
   try {
-    bytecodeContract = await fetchDeployedBytecode(address, { chainId: preferredChainId });
+    bytecodeContract = await fetchDeployedBytecode(analysisAddress, { chainId: preferredChainId });
   } catch (error) {
     bytecodeError = error.message;
   }
 
   const resolvedChainId = sourceContract?.chainId || bytecodeContract?.chainId || null;
   const resolvedRpcUrl = bytecodeContract?.rpcUrl || null;
-  const externalAnalyses = await runExternalAddressAnalyses(address, {
+  const externalAnalyses = await runExternalAddressAnalyses(analysisAddress, {
     chainId: resolvedChainId,
     rpcUrl: resolvedRpcUrl,
     sourceCode: sourceContract?.code || "",
@@ -151,12 +154,10 @@ export async function auditAddress(address, options = {}) {
     throw new Error(sourceError || bytecodeError || "Unable to audit the contract address with either source-based or bytecode-based analysis.");
   }
 
-  const localAudit = sourceContract
-    ? await auditCode(sourceContract.code, options)
-    : {
-        contractType: options.contractType || "general",
-        findings: []
-      };
+  const contractType = sourceContract
+    ? detectContractType(sourceContract.code, options.contractType)
+    : (options.contractType || "general");
+  const findings = collectDetectedFindings(externalAnalyses);
 
   const analysisMode = sourceContract
     ? (bytecodeContract ? "source-and-bytecode" : "source-only")
@@ -173,20 +174,22 @@ export async function auditAddress(address, options = {}) {
       matchType: "bytecode-only"
     }),
     ...(bytecodeContract ? {
+      bytecodeAddress: bytecodeContract.address,
       bytecodeSize: bytecodeContract.bytecodeSize,
       bytecodeHash: bytecodeContract.bytecodeHash,
       bytecodeProvider: bytecodeContract.provider
     } : {}),
-    contractType: localAudit.contractType,
-    findings: localAudit.findings,
+    analysisAddress,
+    contractType,
+    findings,
     externalAnalyses,
     analysisMode,
     hasVerifiedSource: Boolean(sourceContract),
     sourceFetchError: sourceError || null,
     bytecodeFetchError: bytecodeError || null,
-    summary: makeAddressSummary(
-      localAudit.contractType,
-      localAudit.findings,
+    summary: makeSummary(
+      contractType,
+      findings,
       externalAnalyses,
       analysisMode,
       Boolean(sourceContract)

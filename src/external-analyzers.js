@@ -6,7 +6,8 @@ import { getProjectRoot } from "./knowledge-base.js";
 const DEFAULT_DOCKER_BIN = process.env.AUDIT_DOCKER_BIN || "docker";
 const DEFAULT_MYTHRIL_DOCKER_IMAGE = process.env.AUDIT_MYTHRIL_DOCKER_IMAGE || "mythril/myth";
 const DEFAULT_MYTHRIL_TIMEOUT = Number(process.env.AUDIT_MYTHRIL_TIMEOUT || 90);
-const DEFAULT_SLITHER_DOCKER_IMAGE = process.env.AUDIT_SLITHER_DOCKER_IMAGE || "trailofbits/slither";
+const DEFAULT_SLITHER_DOCKER_IMAGE = process.env.AUDIT_SLITHER_DOCKER_IMAGE || "smart-contract-audit-slither:local";
+const DEFAULT_SLITHER_DOCKER_PLATFORM = process.env.AUDIT_SLITHER_DOCKER_PLATFORM || "";
 
 function getMythrilBinaryCandidates() {
   const candidates = [];
@@ -129,19 +130,58 @@ function collectMythrilIssues(payload) {
 }
 
 function collectSlitherIssues(payload) {
-  const detectors = payload?.results?.detectors;
-  if (!Array.isArray(detectors)) {
+  const rawDetectors = payload?.results?.detectors;
+  const detectors = Array.isArray(rawDetectors)
+    ? rawDetectors
+    : (rawDetectors && typeof rawDetectors === "object" ? Object.values(rawDetectors) : []);
+  if (!Array.isArray(detectors) || detectors.length === 0) {
     return [];
   }
   return detectors.map((detector) => {
     const firstElement = Array.isArray(detector?.elements) && detector.elements.length > 0 ? detector.elements[0] : null;
+    const lines = Array.isArray(firstElement?.source_mapping?.lines) ? firstElement.source_mapping.lines : [];
     return {
       swcId: "",
       title: detector?.check || detector?.title || "Unnamed detector",
       severity: normalizeSeverity(detector?.impact || detector?.severity || detector?.confidence),
       description: detector?.description || detector?.markdown || "",
       functionName: firstElement?.name || "",
-      pc: null
+      pc: null,
+      sourcePath: firstElement?.source_mapping?.filename_relative || "",
+      line: lines.length > 0 ? lines[0] : null
+    };
+  });
+}
+
+function collectSlitherIssuesFromLogs(logs) {
+  const normalized = String(logs || "").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const blocks = normalized
+    .split(/\n(?=Detector:\s+)/g)
+    .map((block) => block.trim())
+    .filter((block) => block.startsWith("Detector:"));
+
+  return blocks.map((block) => {
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    const title = lines[0]?.replace(/^Detector:\s*/i, "").trim() || "Unnamed detector";
+    const description = lines
+      .slice(1)
+      .filter((line) => !/^Reference:/i.test(line))
+      .join("\n")
+      .trim();
+    const locationMatch = description.match(/\(([^()]+)#(\d+)(?:-\d+)?\)/);
+    return {
+      swcId: "",
+      title,
+      severity: "info",
+      description,
+      functionName: "",
+      pc: null,
+      sourcePath: locationMatch?.[1] || "",
+      line: Number.isFinite(Number(locationMatch?.[2])) ? Number(locationMatch[2]) : null
     };
   });
 }
@@ -177,6 +217,21 @@ function sanitizeRelativePath(input, fallbackName) {
     return fallbackName;
   }
   return normalized;
+}
+
+function shellEscape(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
+}
+
+function detectPreferredSolcVersion(sourceCode) {
+  const normalized = String(sourceCode || "");
+  const pragmaMatch = normalized.match(/pragma\s+solidity\s+([^;]+);/i);
+  if (!pragmaMatch) {
+    return "";
+  }
+
+  const exactVersion = pragmaMatch[1].match(/(\d+\.\d+\.\d+)/);
+  return exactVersion ? exactVersion[1] : "";
 }
 
 function materializeSourceBundle(sourceCode, options = {}) {
@@ -245,19 +300,29 @@ async function tryRunSlitherDocker(sourceCode, options, dockerBin, image) {
   const containerWorkDir = "/tmp/slither-work";
   const containerTargetPath = path.posix.join(containerWorkDir, targetPath.replace(/\\/g, "/"));
   const containerOutputPath = path.posix.join(containerWorkDir, "slither-report.json");
+  const preferredSolcVersion = detectPreferredSolcVersion(sourceCode);
+  const bootstrapCommand = preferredSolcVersion
+    ? `if ! command -v solc-select >/dev/null 2>&1 && command -v pip3 >/dev/null 2>&1; then pip3 install --quiet solc-select >/dev/null 2>&1; fi; if command -v solc-select >/dev/null 2>&1; then solc-select use ${shellEscape(preferredSolcVersion)} >/dev/null 2>&1 || (solc-select install ${shellEscape(preferredSolcVersion)} >/dev/null 2>&1 && solc-select use ${shellEscape(preferredSolcVersion)} >/dev/null 2>&1); fi; `
+    : "";
+  const analyzerCommand = `if command -v smart-slither >/dev/null 2>&1; then smart-slither ${shellEscape(containerTargetPath)} --json ${shellEscape(containerOutputPath)} --disable-color; else ${bootstrapCommand}slither ${shellEscape(containerTargetPath)} --json ${shellEscape(containerOutputPath)} --disable-color; fi`;
 
   try {
-    const created = await runCommand(dockerBin, [
+    const createdArgs = [
       "create",
       "--name",
-      containerName,
+      containerName
+    ];
+    if (DEFAULT_SLITHER_DOCKER_PLATFORM) {
+      createdArgs.push("--platform", DEFAULT_SLITHER_DOCKER_PLATFORM);
+    }
+    createdArgs.push(
       image,
-      "slither",
-      containerTargetPath,
-      "--json",
-      containerOutputPath,
-      "--disable-color"
-    ]);
+      "sh",
+      "-lc",
+      analyzerCommand
+    );
+
+    const created = await runCommand(dockerBin, createdArgs);
     if (created.code !== 0) {
       throw new Error(created.stderr.trim() || created.stdout.trim() || `${dockerBin} create failed`);
     }
@@ -274,26 +339,39 @@ async function tryRunSlitherDocker(sourceCode, options, dockerBin, image) {
 
     const waited = await runCommand(dockerBin, ["wait", containerName]);
     const exitCode = Number((waited.stdout || "").trim() || "1");
-    if (exitCode !== 0) {
-      const logs = await runCommand(dockerBin, ["logs", containerName]);
-      throw new Error(
-        logs.stderr.trim()
-        || logs.stdout.trim()
-        || `slither container exited with code ${exitCode}`
-      );
-    }
+    const logs = await runCommand(dockerBin, ["logs", containerName]);
+    const combinedLogs = `${logs.stdout || ""}\n${logs.stderr || ""}`.trim();
 
     const copiedOut = await runCommand(dockerBin, ["cp", `${containerName}:${containerOutputPath}`, outputPath]);
     if (copiedOut.code !== 0) {
-      throw new Error(copiedOut.stderr.trim() || copiedOut.stdout.trim() || `${dockerBin} cp report failed`);
+      throw new Error(
+        copiedOut.stderr.trim()
+        || copiedOut.stdout.trim()
+        || logs.stderr.trim()
+        || logs.stdout.trim()
+        || `${dockerBin} cp report failed`
+      );
     }
 
     if (!fs.existsSync(outputPath)) {
-      throw new Error("Slither did not produce a JSON report.");
+      throw new Error(
+        logs.stderr.trim()
+        || logs.stdout.trim()
+        || "Slither did not produce a JSON report."
+      );
     }
 
     const payload = JSON.parse(fs.readFileSync(outputPath, "utf8"));
-    const issues = collectSlitherIssues(payload);
+    if (payload?.success === false && exitCode !== 0) {
+      throw new Error(payload?.error || combinedLogs || `slither container exited with code ${exitCode}`);
+    }
+    let issues = collectSlitherIssues(payload);
+    if (issues.length === 0 && /Detector:/i.test(combinedLogs)) {
+      issues = collectSlitherIssuesFromLogs(combinedLogs);
+    }
+    if (issues.length === 0 && /No contract was analyzed|Compilation warnings\/errors|check the correct compilation/i.test(combinedLogs)) {
+      throw new Error(combinedLogs || "Slither could not compile the provided source.");
+    }
     return {
       engine: "slither",
       title: "Slither source analysis",
@@ -443,20 +521,34 @@ async function runMythril(address, options) {
   };
 }
 
-export async function runExternalAddressAnalyses(address, options = {}) {
-  const [slither, mythril] = await Promise.all([
-    runSlither({
-      sourceCode: options.sourceCode || "",
-      contractName: options.contractName || "",
-      primarySourcePath: options.primarySourcePath || ""
-    }),
-    runMythril(address, options)
-  ]);
+export async function runExternalSourceAnalyses(options = {}) {
+  const slither = await runSlither({
+    sourceCode: options.sourceCode || "",
+    contractName: options.contractName || "",
+    primarySourcePath: options.primarySourcePath || ""
+  });
+
   return [
     {
       ...slither,
       chainId: options.chainId || null
-    },
+    }
+  ];
+}
+
+export async function runExternalAddressAnalyses(address, options = {}) {
+  const [sourceAnalyses, mythril] = await Promise.all([
+    runExternalSourceAnalyses({
+      sourceCode: options.sourceCode || "",
+      contractName: options.contractName || "",
+      primarySourcePath: options.primarySourcePath || "",
+      chainId: options.chainId || null
+    }),
+    runMythril(address, options)
+  ]);
+
+  return [
+    ...sourceAnalyses,
     {
       ...mythril,
       chainId: options.chainId || null

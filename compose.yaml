@@ -1,4 +1,17 @@
 services:
+  smart-contract-audit-slither-image:
+    platform: ${AUDIT_SLITHER_DOCKER_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      dockerfile: docker/slither/Dockerfile
+      args:
+        SLITHER_ANALYZER_VERSION: ${AUDIT_SLITHER_ANALYZER_VERSION:-}
+        SOLC_VERSIONS: ${AUDIT_SLITHER_SOLC_VERSIONS:-0.4.26,0.5.17,0.6.12,0.7.6,0.8.20,0.8.24}
+        PIP_INDEX_URL: ${AUDIT_SLITHER_PIP_INDEX_URL:-https://pypi.org/simple}
+        PIP_TRUSTED_HOST: ${AUDIT_SLITHER_PIP_TRUSTED_HOST:-}
+    image: ${AUDIT_SLITHER_DOCKER_IMAGE:-smart-contract-audit-slither:local}
+    profiles: ["tooling"]
+
   smart-contract-audit-db:
     image: postgres:16-alpine
     environment:
@@ -24,6 +37,8 @@ services:
       PORT: 3000
       MCP_HTTP_PATH: /mcp
       DATABASE_URL: postgresql://postgres:postgres@smart-contract-audit-db:5432/smart_contract_audit
+      AUDIT_SLITHER_DOCKER_IMAGE: ${AUDIT_SLITHER_DOCKER_IMAGE:-smart-contract-audit-slither:local}
+      AUDIT_SLITHER_DOCKER_PLATFORM: ${AUDIT_SLITHER_DOCKER_PLATFORM:-linux/amd64}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -40,6 +55,8 @@ services:
       PORT: 3000
       MCP_HTTP_PATH: /mcp
       DATABASE_URL: postgresql://postgres:postgres@smart-contract-audit-db:5432/smart_contract_audit
+      AUDIT_SLITHER_DOCKER_IMAGE: ${AUDIT_SLITHER_DOCKER_IMAGE:-smart-contract-audit-slither:local}
+      AUDIT_SLITHER_DOCKER_PLATFORM: ${AUDIT_SLITHER_DOCKER_PLATFORM:-linux/amd64}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

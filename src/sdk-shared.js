@@ -28,18 +28,19 @@ function markdownFindings(result, includePath = "") {
     result.contractName ? `Contract: ${result.contractName}` : undefined,
     result.sourceRepository ? `Source provider: ${result.sourceRepository}` : undefined,
     result.analysisMode ? `Analysis mode: ${result.analysisMode}` : undefined,
+    result.analysisAddress && result.analysisAddress !== result.address ? `Analysis target: ${result.analysisAddress}` : undefined,
     result.bytecodeSize ? `Bytecode size: ${result.bytecodeSize} bytes` : undefined,
     `Contract type: ${result.contractType}`,
     `Summary: ${result.summary}`,
     "",
-    "Local Findings:"
+    "Detected Issues:"
   ].filter(Boolean);
 
   if (result.findings.length === 0) {
-    lines.push("- No findings triggered by the local ruleset.");
+    lines.push("- No issues were reported by the configured third-party analyzers.");
   } else {
     for (const finding of result.findings) {
-      lines.push(`- [${finding.severity.toUpperCase()}] ${finding.title}`);
+      lines.push(`- [${finding.severity.toUpperCase()}] ${finding.title}${finding.engine ? ` (${finding.engine})` : ""}`);
       lines.push(`  Why: ${finding.rationale}`);
       lines.push(`  Fix: ${finding.recommendation}`);
     }
@@ -107,7 +108,7 @@ function registerTools(server) {
     "audit_contract_file",
     {
       title: "Audit Contract File",
-      description: "Audit a Solidity contract file inside the demo project and return security findings.",
+      description: "Audit a Solidity contract file inside the demo project using configured third-party analyzers such as Slither.",
       inputSchema: {
         path: z.string(),
         contractType: z.enum(CONTRACT_TYPES).optional()
@@ -130,7 +131,7 @@ function registerTools(server) {
     "audit_contract_code",
     {
       title: "Audit Solidity Code",
-      description: "Audit Solidity code using domain-focused static rules.",
+      description: "Audit Solidity code using configured third-party analyzers such as Slither.",
       inputSchema: {
         code: z.string(),
         contractType: z.enum(CONTRACT_TYPES).optional()

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "slither-tx-origin",
+    "kind": "file",
+    "path": "samples/SlitherBenchmarkTxOrigin.sol",
+    "contractType": "general",
+    "requiredEngine": "slither",
+    "minIssueCount": 1
+  },
+  {
+    "id": "slither-unchecked-low-level-call",
+    "kind": "file",
+    "path": "samples/SlitherBenchmarkUncheckedCall.sol",
+    "contractType": "general",
+    "requiredEngine": "slither",
+    "minIssueCount": 1
+  }
+]
