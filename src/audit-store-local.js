@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { normalizeAuditResult } from "./analyzer.js";
 import { getProjectRoot } from "./knowledge-base.js";
 
 const dataDir = path.join(getProjectRoot(), "data");
@@ -151,6 +152,11 @@ function mapAuditJob(row) {
     return null;
   }
 
+  const normalizedResult = normalizeAuditResult(row.result_json ? JSON.parse(row.result_json) : null, {
+    contractType: row.contract_type || "",
+    analysisMode: row.analysis_mode || ""
+  });
+
   return {
     id: row.id,
     inputType: row.input_type,
@@ -158,8 +164,8 @@ function mapAuditJob(row) {
     chainId: row.chain_id,
     contractType: row.contract_type,
     status: row.status,
-    summary: row.summary,
-    analysisMode: row.analysis_mode,
+    summary: normalizedResult?.summary || row.summary,
+    analysisMode: normalizedResult?.analysisMode || row.analysis_mode,
     errorMessage: row.error_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -171,7 +177,7 @@ function mapAuditJob(row) {
     workerId: row.worker_id,
     leaseUntil: row.lease_until,
     lastHeartbeatAt: row.last_heartbeat_at,
-    result: row.result_json ? JSON.parse(row.result_json) : null
+    result: normalizedResult
   };
 }
 

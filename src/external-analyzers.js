@@ -8,6 +8,15 @@ const DEFAULT_MYTHRIL_DOCKER_IMAGE = process.env.AUDIT_MYTHRIL_DOCKER_IMAGE || "
 const DEFAULT_MYTHRIL_TIMEOUT = Number(process.env.AUDIT_MYTHRIL_TIMEOUT || 90);
 const DEFAULT_SLITHER_DOCKER_IMAGE = process.env.AUDIT_SLITHER_DOCKER_IMAGE || "smart-contract-audit-slither:local";
 const DEFAULT_SLITHER_DOCKER_PLATFORM = process.env.AUDIT_SLITHER_DOCKER_PLATFORM || "";
+const MYTHRIL_SWC_TITLES = {
+  "SWC-104": "Unchecked external call result",
+  "SWC-107": "Reentrancy",
+  "SWC-110": "Assert violation risk",
+  "SWC-112": "Untrusted delegatecall target",
+  "SWC-115": "Dangerous tx.origin authorization",
+  "SWC-116": "Timestamp dependence",
+  "SWC-124": "Arbitrary storage write"
+};
 
 function getMythrilBinaryCandidates() {
   const candidates = [];
@@ -48,6 +57,129 @@ function normalizeSeverity(value) {
     return "low";
   }
   return "info";
+}
+
+function normalizeTextKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeSourcePath(input, fallbackName = "Contract.sol") {
+  const candidate = String(input || "").trim() || fallbackName;
+  const normalized = path.posix.normalize(candidate.replace(/\\/g, "/")).replace(/^\/+/, "");
+  if (!normalized || normalized.startsWith("..")) {
+    return fallbackName;
+  }
+  return normalized;
+}
+
+function resolveMythrilIssueTitle(issue) {
+  const rawTitle = String(
+    issue?.title || issue?.shortDescription?.headline || issue?.description?.headline || issue?.check || ""
+  ).trim();
+
+  if (rawTitle && rawTitle.toLowerCase() !== "unnamed issue") {
+    return rawTitle;
+  }
+
+  const swcId = String(issue?.swcID || issue?.swcId || issue?.swc_id || "").trim();
+  return MYTHRIL_SWC_TITLES[swcId] || "Unnamed issue";
+}
+
+function uniqueInstances(instances) {
+  const seen = new Set();
+  const result = [];
+  for (const instance of instances) {
+    const key = JSON.stringify([
+      instance.functionName || "",
+      instance.sourcePath || "",
+      instance.line ?? "",
+      instance.pc ?? "",
+      normalizeTextKey(instance.description || "")
+    ]);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(instance);
+  }
+  return result;
+}
+
+export function groupAnalyzerIssues(engine, issues) {
+  const groups = new Map();
+
+  for (const issue of issues || []) {
+    const locationKey = issue.functionName
+      ? `fn:${issue.functionName}`
+      : issue.sourcePath
+        ? `src:${issue.sourcePath}:${issue.line || ""}`
+        : "";
+    const fallbackKey = locationKey
+      ? ""
+      : normalizeTextKey(issue.description || "").slice(0, 160);
+    const groupKey = JSON.stringify([
+      engine,
+      issue.swcId || "",
+      issue.title || "",
+      issue.severity || "",
+      locationKey,
+      fallbackKey
+    ]);
+
+    const current = groups.get(groupKey);
+    if (!current) {
+      groups.set(groupKey, {
+        ...issue,
+        instances: uniqueInstances([{
+          functionName: issue.functionName || "",
+          sourcePath: issue.sourcePath || "",
+          line: issue.line ?? null,
+          pc: issue.pc ?? null,
+          description: issue.description || ""
+        }]),
+        instanceCount: 1
+      });
+      continue;
+    }
+
+    current.instances = uniqueInstances([
+      ...current.instances,
+      {
+        functionName: issue.functionName || "",
+        sourcePath: issue.sourcePath || "",
+        line: issue.line ?? null,
+        pc: issue.pc ?? null,
+        description: issue.description || ""
+      }
+    ]);
+    current.instanceCount = current.instances.length;
+
+    if (!current.functionName && issue.functionName) {
+      current.functionName = issue.functionName;
+    }
+    if (!current.sourcePath && issue.sourcePath) {
+      current.sourcePath = issue.sourcePath;
+    }
+    if (!current.line && issue.line) {
+      current.line = issue.line;
+    }
+    if (current.pc == null && issue.pc != null) {
+      current.pc = issue.pc;
+    }
+  }
+
+  return [...groups.values()];
+}
+
+function withSummary(summaryKey, summaryParams, summary) {
+  return {
+    summaryKey,
+    summaryParams,
+    summary
+  };
 }
 
 function resolveMythrilMode() {
@@ -121,12 +253,170 @@ function collectMythrilIssues(payload) {
 
   return candidates.map((issue) => ({
     swcId: issue?.swcID || issue?.swcId || issue?.swc_id || "",
-    title: issue?.title || issue?.shortDescription?.headline || issue?.description?.headline || issue?.check || "Unnamed issue",
+    title: resolveMythrilIssueTitle(issue),
     severity: normalizeSeverity(issue?.severity),
     description: issue?.description?.tail || issue?.description || issue?.longDescription || issue?.extra?.description || "",
     functionName: issue?.function || issue?.functionName || "",
-    pc: Number.isFinite(Number(issue?.address)) ? Number(issue.address) : null
+    pc: Number.isFinite(Number(issue?.address)) ? Number(issue.address) : null,
+    sourcePath: "",
+    line: null
   }));
+}
+
+function buildSourceIndex(sourceCode, options = {}) {
+  if (!sourceCode) {
+    return null;
+  }
+
+  const fallbackPath = normalizeSourcePath(
+    options.primarySourcePath,
+    `${options.contractName || "Contract"}.sol`
+  );
+  const marker = /^\/\/ File:\s+(.+)$/;
+  const files = new Map();
+  let currentPath = fallbackPath;
+  let currentLines = [];
+
+  const flush = () => {
+    if (currentLines.length === 0) {
+      return;
+    }
+    files.set(currentPath, [...(files.get(currentPath) || []), ...currentLines]);
+  };
+
+  for (const rawLine of String(sourceCode).split(/\r?\n/)) {
+    const matched = rawLine.match(marker);
+    if (matched) {
+      flush();
+      currentPath = normalizeSourcePath(matched[1], fallbackPath);
+      currentLines = [];
+      continue;
+    }
+    currentLines.push(rawLine);
+  }
+  flush();
+
+  const entries = [];
+  const functionsByFile = new Map();
+  const declarationPattern = /\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(|\bmodifier\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(|\b(constructor|fallback|receive)\s*\(/i;
+
+  for (const [sourcePath, lines] of files.entries()) {
+    const functions = [];
+    let pendingName = "";
+    for (let index = 0; index < lines.length; index += 1) {
+      const text = lines[index];
+      entries.push({ sourcePath, line: index + 1, text });
+
+      const match = text.match(declarationPattern);
+      if (match) {
+        pendingName = match[1] || match[2] || match[3] || "";
+      }
+
+      if (pendingName && text.includes("{")) {
+        functions.push({
+          line: index + 1,
+          name: pendingName
+        });
+        pendingName = "";
+      } else if (pendingName && text.includes(";")) {
+        pendingName = "";
+      }
+    }
+    functionsByFile.set(sourcePath, functions);
+  }
+
+  return {
+    entries,
+    functionsByFile,
+    primarySourcePath: fallbackPath
+  };
+}
+
+function nearestFunctionName(functions, line) {
+  if (!Array.isArray(functions) || !functions.length || !line) {
+    return "";
+  }
+
+  let current = "";
+  for (const item of functions) {
+    if (item.line > line) {
+      break;
+    }
+    current = item.name;
+  }
+  return current;
+}
+
+function inferMythrilSourceHint(index, issue) {
+  if (!index?.entries?.length) {
+    return null;
+  }
+
+  const description = normalizeTextKey(issue.description || "");
+  const patterns = [];
+
+  if (issue.swcId === "SWC-110" || description.includes("assertion violation")) {
+    patterns.push(/\bassert\s*\(/i);
+  }
+  if (issue.swcId === "SWC-116" || description.includes("block.timestamp") || description.includes("timestamp")) {
+    patterns.push(/\bblock\.timestamp\b|\bnow\b/i);
+  }
+  if (issue.swcId === "SWC-115" || description.includes("tx.origin")) {
+    patterns.push(/\btx\.origin\b/i);
+  }
+  if (issue.swcId === "SWC-104" || description.includes("return value")) {
+    patterns.push(/\.call\s*\(|\.delegatecall\s*\(|\.staticcall\s*\(/i);
+  }
+  if (issue.swcId === "SWC-107" || description.includes("reentr")) {
+    patterns.push(/call\.value\s*\(|\.call\s*\(/i);
+  }
+
+  for (const pattern of patterns) {
+    const matched = index.entries.find((entry) => entry.sourcePath === index.primarySourcePath && pattern.test(entry.text))
+      || index.entries.find((entry) => pattern.test(entry.text));
+
+    if (!matched) {
+      continue;
+    }
+
+    return {
+      sourcePath: matched.sourcePath,
+      line: matched.line,
+      functionName: nearestFunctionName(index.functionsByFile.get(matched.sourcePath), matched.line)
+    };
+  }
+
+  return null;
+}
+
+function enrichMythrilIssues(issues, options = {}) {
+  const sourceIndex = buildSourceIndex(options.sourceCode || "", options);
+
+  return (issues || []).map((issue) => {
+    const title = resolveMythrilIssueTitle(issue);
+    if (issue.functionName || issue.sourcePath || issue.line != null || !sourceIndex) {
+      return {
+        ...issue,
+        title
+      };
+    }
+
+    const hint = inferMythrilSourceHint(sourceIndex, issue);
+    if (!hint) {
+      return {
+        ...issue,
+        title
+      };
+    }
+
+    return {
+      ...issue,
+      title,
+      functionName: issue.functionName || hint.functionName || "",
+      sourcePath: issue.sourcePath || hint.sourcePath || "",
+      line: issue.line ?? hint.line ?? null
+    };
+  });
 }
 
 function collectSlitherIssues(payload) {
@@ -186,12 +476,15 @@ function collectSlitherIssuesFromLogs(logs) {
   });
 }
 
-async function tryRunMythril(command, args, driver) {
+async function tryRunMythril(command, args, driver, options = {}) {
   const { code, stdout, stderr } = await runCommand(command, args);
 
   try {
     const payload = JSON.parse(stdout);
-    const issues = collectMythrilIssues(payload);
+    const issues = groupAnalyzerIssues(
+      "mythril",
+      enrichMythrilIssues(collectMythrilIssues(payload), options)
+    );
     return {
       engine: "mythril",
       title: "Mythril bytecode analysis",
@@ -199,7 +492,9 @@ async function tryRunMythril(command, args, driver) {
       mode: "address-rpc-bytecode",
       status: "ok",
       issueCount: issues.length,
-      summary: issues.length > 0 ? `Mythril reported ${issues.length} issue(s).` : "Mythril completed without reporting issues.",
+      ...(issues.length > 0
+        ? withSummary("engine.reportedIssues", { engine: "Mythril", issueCount: issues.length }, `Mythril reported ${issues.length} issue(s).`)
+        : withSummary("engine.noIssues", { engine: "Mythril" }, "Mythril completed without reporting issues.")),
       issues
     };
   } catch (error) {
@@ -212,11 +507,7 @@ async function tryRunMythril(command, args, driver) {
 
 function sanitizeRelativePath(input, fallbackName) {
   const candidate = String(input || "").trim() || fallbackName;
-  const normalized = path.posix.normalize(candidate.replace(/\\/g, "/")).replace(/^\/+/, "");
-  if (!normalized || normalized.startsWith("..")) {
-    return fallbackName;
-  }
-  return normalized;
+  return normalizeSourcePath(candidate, fallbackName);
 }
 
 function shellEscape(value) {
@@ -365,9 +656,9 @@ async function tryRunSlitherDocker(sourceCode, options, dockerBin, image) {
     if (payload?.success === false && exitCode !== 0) {
       throw new Error(payload?.error || combinedLogs || `slither container exited with code ${exitCode}`);
     }
-    let issues = collectSlitherIssues(payload);
+    let issues = groupAnalyzerIssues("slither", collectSlitherIssues(payload));
     if (issues.length === 0 && /Detector:/i.test(combinedLogs)) {
-      issues = collectSlitherIssuesFromLogs(combinedLogs);
+      issues = groupAnalyzerIssues("slither", collectSlitherIssuesFromLogs(combinedLogs));
     }
     if (issues.length === 0 && /No contract was analyzed|Compilation warnings\/errors|check the correct compilation/i.test(combinedLogs)) {
       throw new Error(combinedLogs || "Slither could not compile the provided source.");
@@ -379,7 +670,9 @@ async function tryRunSlitherDocker(sourceCode, options, dockerBin, image) {
       mode: "source-static",
       status: "ok",
       issueCount: issues.length,
-      summary: issues.length > 0 ? `Slither reported ${issues.length} issue(s).` : "Slither completed without reporting issues.",
+      ...(issues.length > 0
+        ? withSummary("engine.reportedIssues", { engine: "Slither", issueCount: issues.length }, `Slither reported ${issues.length} issue(s).`)
+        : withSummary("engine.noIssues", { engine: "Slither" }, "Slither completed without reporting issues.")),
       issues
     };
   } finally {
@@ -396,7 +689,7 @@ async function runSlither(options) {
       status: "skipped",
       mode: "source-static",
       issueCount: 0,
-      summary: "Slither was skipped because verified source was not available.",
+      ...withSummary("engine.skippedNoSource", { engine: "Slither" }, "Slither was skipped because verified source was not available."),
       issues: []
     };
   }
@@ -409,7 +702,7 @@ async function runSlither(options) {
       status: "disabled",
       mode: "source-static",
       issueCount: 0,
-      summary: "Slither integration is disabled by AUDIT_SLITHER_MODE=off.",
+      ...withSummary("engine.disabled", { engine: "Slither" }, "Slither integration is disabled by AUDIT_SLITHER_MODE=off."),
       issues: []
     };
   }
@@ -439,7 +732,11 @@ async function runSlither(options) {
     status: "unavailable",
     mode: "source-static",
     issueCount: 0,
-    summary: `Slither could not be executed. ${errors[0] || "No runner is available."}`,
+    ...withSummary(
+      "engine.unavailable",
+      { engine: "Slither", detail: errors[0] || "No runner is available." },
+      `Slither could not be executed. ${errors[0] || "No runner is available."}`
+    ),
     issues: []
   };
 }
@@ -452,7 +749,7 @@ async function runMythril(address, options) {
       status: "skipped",
       mode: "address-rpc-bytecode",
       issueCount: 0,
-      summary: "Mythril was skipped because no RPC endpoint was available for the resolved chain.",
+      ...withSummary("engine.skippedNoRpc", { engine: "Mythril" }, "Mythril was skipped because no RPC endpoint was available for the resolved chain."),
       issues: []
     };
   }
@@ -465,7 +762,7 @@ async function runMythril(address, options) {
       status: "disabled",
       mode: "address-rpc-bytecode",
       issueCount: 0,
-      summary: "Mythril integration is disabled by AUDIT_MYTHRIL_MODE=off.",
+      ...withSummary("engine.disabled", { engine: "Mythril" }, "Mythril integration is disabled by AUDIT_MYTHRIL_MODE=off."),
       issues: []
     };
   }
@@ -492,7 +789,7 @@ async function runMythril(address, options) {
   if (mode === "binary" || mode === "auto") {
     for (const binary of getMythrilBinaryCandidates()) {
       try {
-        return await tryRunMythril(binary, baseArgs, "binary");
+        return await tryRunMythril(binary, baseArgs, "binary", options);
       } catch (error) {
         errors.push(`binary(${binary}): ${error.message}`);
       }
@@ -503,7 +800,7 @@ async function runMythril(address, options) {
     const dockerArgs = ["run", "--rm", DEFAULT_MYTHRIL_DOCKER_IMAGE, ...baseArgs];
     for (const dockerBin of getDockerBinaryCandidates()) {
       try {
-        return await tryRunMythril(dockerBin, dockerArgs, "docker");
+        return await tryRunMythril(dockerBin, dockerArgs, "docker", options);
       } catch (error) {
         errors.push(`docker(${dockerBin}): ${error.message}`);
       }
@@ -516,7 +813,11 @@ async function runMythril(address, options) {
     status: "unavailable",
     mode: "address-rpc-bytecode",
     issueCount: 0,
-    summary: `Mythril could not be executed. ${errors[0] || "No runner is available."}`,
+    ...withSummary(
+      "engine.unavailable",
+      { engine: "Mythril", detail: errors[0] || "No runner is available." },
+      `Mythril could not be executed. ${errors[0] || "No runner is available."}`
+    ),
     issues: []
   };
 }

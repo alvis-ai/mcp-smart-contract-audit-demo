@@ -6,6 +6,7 @@ import {
   fetchVerifiedContractSource
 } from "./verified-source.js";
 import {
+  groupAnalyzerIssues,
   runExternalAddressAnalyses,
   runExternalSourceAnalyses
 } from "./external-analyzers.js";
@@ -42,18 +43,242 @@ function countExternalIssues(externalAnalyses) {
     .reduce((count, analysis) => count + (analysis.issueCount || 0), 0);
 }
 
+function buildSummary(summaryKey, summaryParams, summary) {
+  return {
+    summaryKey,
+    summaryParams,
+    summary
+  };
+}
+
+function classifyFindingCategory(issue) {
+  const title = String(issue?.title || "").trim();
+  if (["naming-convention", "external-function", "immutable-states", "write-after-write"].includes(title)) {
+    return "advisory";
+  }
+  return "security";
+}
+
+function normalizeIssueTitle(issue, engine = "") {
+  const title = String(issue?.title || "").trim();
+  if (title && title.toLowerCase() !== "unnamed issue") {
+    return title;
+  }
+
+  if (engine !== "mythril") {
+    return title || "Unnamed issue";
+  }
+
+  return {
+    "SWC-104": "Unchecked external call result",
+    "SWC-107": "Reentrancy",
+    "SWC-110": "Assert violation risk",
+    "SWC-112": "Untrusted delegatecall target",
+    "SWC-115": "Dangerous tx.origin authorization",
+    "SWC-116": "Timestamp dependence",
+    "SWC-124": "Arbitrary storage write"
+  }[String(issue?.swcId || "").trim()] || "Unnamed issue";
+}
+
+function buildEngineSummary(analysis) {
+  const engineName = analysis.engine === "mythril"
+    ? "Mythril"
+    : analysis.engine === "slither"
+      ? "Slither"
+      : (analysis.title || analysis.engine || "External analysis");
+
+  if (analysis.status === "ok") {
+    if ((analysis.issueCount || 0) > 0) {
+      return {
+        summaryKey: "engine.reportedIssues",
+        summaryParams: { engine: engineName, issueCount: analysis.issueCount || 0 },
+        summary: `${engineName} reported ${analysis.issueCount || 0} issue(s).`
+      };
+    }
+
+    return {
+      summaryKey: "engine.noIssues",
+      summaryParams: { engine: engineName },
+      summary: `${engineName} completed without reporting issues.`
+    };
+  }
+
+  if (analysis.summaryKey) {
+    return {
+      summaryKey: analysis.summaryKey,
+      summaryParams: analysis.summaryParams || null,
+      summary: analysis.summary || ""
+    };
+  }
+
+  return {
+    summaryKey: "",
+    summaryParams: null,
+    summary: analysis.summary || ""
+  };
+}
+
+function normalizeExternalAnalyses(externalAnalyses) {
+  return (externalAnalyses || []).map((analysis) => {
+    const issues = groupAnalyzerIssues(
+      analysis.engine || "engine",
+      (Array.isArray(analysis.issues) ? analysis.issues : []).map((issue) => ({
+        ...issue,
+        title: normalizeIssueTitle(issue, analysis.engine || "")
+      }))
+    );
+    const issueCount = issues.length;
+    const engineSummary = buildEngineSummary({
+      ...analysis,
+      issueCount
+    });
+
+    return {
+      ...analysis,
+      issueCount,
+      issues,
+      ...engineSummary
+    };
+  });
+}
+
+function getFindingGuidance(issue) {
+  const key = String(issue?.title || "").trim();
+  const swcId = String(issue?.swcId || "").trim();
+  const guidance = {
+    "tx-origin": {
+      rationaleKey: "finding.txOrigin.why",
+      recommendationKey: "finding.txOrigin.fix"
+    },
+    "solc-version": {
+      rationaleKey: "finding.solcVersion.why",
+      recommendationKey: "finding.solcVersion.fix"
+    },
+    "immutable-states": {
+      rationaleKey: "finding.immutableStates.why",
+      recommendationKey: "finding.immutableStates.fix"
+    },
+    "unchecked-lowlevel": {
+      rationaleKey: "finding.uncheckedLowLevel.why",
+      recommendationKey: "finding.uncheckedLowLevel.fix"
+    },
+    "missing-zero-check": {
+      rationaleKey: "finding.missingZeroCheck.why",
+      recommendationKey: "finding.missingZeroCheck.fix"
+    },
+    "low-level-calls": {
+      rationaleKey: "finding.lowLevelCalls.why",
+      recommendationKey: "finding.lowLevelCalls.fix"
+    },
+    "reentrancy-balance": {
+      rationaleKey: "finding.reentrancyBalance.why",
+      recommendationKey: "finding.reentrancyBalance.fix"
+    },
+    "reentrancy-no-eth": {
+      rationaleKey: "finding.reentrancyNoEth.why",
+      recommendationKey: "finding.reentrancyNoEth.fix"
+    },
+    "unchecked-transfer": {
+      rationaleKey: "finding.uncheckedTransfer.why",
+      recommendationKey: "finding.uncheckedTransfer.fix"
+    },
+    "unused-return": {
+      rationaleKey: "finding.unusedReturn.why",
+      recommendationKey: "finding.unusedReturn.fix"
+    },
+    "arbitrary-send-erc20": {
+      rationaleKey: "finding.arbitrarySendErc20.why",
+      recommendationKey: "finding.arbitrarySendErc20.fix"
+    },
+    "write-after-write": {
+      rationaleKey: "finding.writeAfterWrite.why",
+      recommendationKey: "finding.writeAfterWrite.fix"
+    },
+    "costly-loop": {
+      rationaleKey: "finding.costlyLoop.why",
+      recommendationKey: "finding.costlyLoop.fix"
+    },
+    "calls-loop": {
+      rationaleKey: "finding.callsLoop.why",
+      recommendationKey: "finding.callsLoop.fix"
+    },
+    "external-function": {
+      rationaleKey: "finding.externalFunction.why",
+      recommendationKey: "finding.externalFunction.fix"
+    },
+    "naming-convention": {
+      rationaleKey: "finding.namingConvention.why",
+      recommendationKey: "finding.namingConvention.fix"
+    },
+    "weak-prng": {
+      rationaleKey: "finding.weakPrng.why",
+      recommendationKey: "finding.weakPrng.fix"
+    },
+    "timestamp": {
+      rationaleKey: "finding.timestampDependence.why",
+      recommendationKey: "finding.timestampDependence.fix"
+    },
+    "Dangerous tx.origin authorization": {
+      rationaleKey: "finding.txOrigin.why",
+      recommendationKey: "finding.txOrigin.fix"
+    },
+    "Timestamp dependence": {
+      rationaleKey: "finding.timestampDependence.why",
+      recommendationKey: "finding.timestampDependence.fix"
+    },
+    "Assert violation risk": {
+      rationaleKey: "finding.assertViolation.why",
+      recommendationKey: "finding.assertViolation.fix"
+    }
+  }[key];
+
+  if (guidance) {
+    return guidance;
+  }
+
+  const swcGuidance = {
+    "SWC-110": {
+      rationaleKey: "finding.assertViolation.why",
+      recommendationKey: "finding.assertViolation.fix"
+    },
+    "SWC-115": {
+      rationaleKey: "finding.txOrigin.why",
+      recommendationKey: "finding.txOrigin.fix"
+    },
+    "SWC-116": {
+      rationaleKey: "finding.timestampDependence.why",
+      recommendationKey: "finding.timestampDependence.fix"
+    }
+  }[swcId];
+
+  if (swcGuidance) {
+    return swcGuidance;
+  }
+
+  return {
+    rationaleKey: "finding.generic.why",
+    recommendationKey: "finding.generic.fix"
+  };
+}
+
 function collectDetectedFindings(externalAnalyses) {
   return externalAnalyses.flatMap((analysis) => (analysis.issues || []).map((issue, index) => ({
-    id: `${analysis.engine || "engine"}-${issue.swcId || issue.functionName || issue.pc || index}`,
+    id: `${analysis.engine || "engine"}-${issue.swcId || issue.title || "issue"}-${issue.functionName || issue.sourcePath || issue.pc || index}`,
     severity: issue.severity || "info",
+    category: classifyFindingCategory(issue),
     title: issue.title || "Unnamed issue",
     rationale: issue.description || analysis.summary || "The external analyzer reported this issue without additional detail.",
     recommendation: "Review the affected path, confirm exploitability manually, and patch the underlying contract logic before deployment.",
+    ...getFindingGuidance(issue),
     engine: analysis.engine || "engine",
     engineTitle: analysis.title || analysis.engine || "External analysis",
     swcId: issue.swcId || "",
     functionName: issue.functionName || "",
-    pc: typeof issue.pc === "number" ? issue.pc : null
+    sourcePath: issue.sourcePath || "",
+    line: Number.isFinite(Number(issue.line)) ? Number(issue.line) : null,
+    pc: typeof issue.pc === "number" ? issue.pc : null,
+    instanceCount: Number.isFinite(Number(issue.instanceCount)) ? Number(issue.instanceCount) : 1,
+    instances: Array.isArray(issue.instances) ? issue.instances : []
   })));
 }
 
@@ -65,14 +290,32 @@ function makeSummary(contractType, findings, externalAnalyses, analysisMode, sou
   const availableEngineCount = externalAnalyses.filter((analysis) => analysis.status === "ok").length;
 
   if (availableEngineCount === 0) {
-    return `${contractType} contract analysis could not run any third-party engine in ${analysisMode} mode. Check Slither/Mythril configuration before trusting the result.`;
+    return buildSummary(
+      "audit.noEngine",
+      { contractType, analysisMode },
+      `${contractType} contract analysis could not run any third-party engine in ${analysisMode} mode. Check Slither/Mythril configuration before trusting the result.`
+    );
   }
 
   if (findings.length === 0) {
-    return `${contractType} contract analysis completed in ${analysisMode} mode${sourceAvailable ? " with verified source" : ""}. Third-party engines reported no issues, but manual review is still required.`;
+    return buildSummary(
+      "audit.noIssues",
+      { contractType, analysisMode, sourceAvailable: sourceAvailable ? "true" : "false" },
+      `${contractType} contract analysis completed in ${analysisMode} mode${sourceAvailable ? " with verified source" : ""}. Third-party engines reported no issues, but manual review is still required.`
+    );
   }
 
-  return `${contractType} contract analysis completed in ${analysisMode} mode with ${externalIssueCount} issue(s), including ${severeCount} high-severity item(s), from ${availableEngineCount} third-party engine(s).`;
+  return buildSummary(
+    "audit.withIssues",
+    {
+      contractType,
+      analysisMode,
+      issueCount: externalIssueCount,
+      highSeverityCount: severeCount,
+      engineCount: availableEngineCount
+    },
+    `${contractType} contract analysis completed in ${analysisMode} mode with ${externalIssueCount} issue(s), including ${severeCount} high-severity item(s), from ${availableEngineCount} third-party engine(s).`
+  );
 }
 
 export async function auditCode(code, options = {}) {
@@ -85,14 +328,55 @@ export async function auditCode(code, options = {}) {
     primarySourcePath: options.primarySourcePath || ""
   });
   const findings = collectDetectedFindings(externalAnalyses);
+  const summary = makeSummary(contractType, findings, externalAnalyses, "source-static", true);
 
   return {
     contractType,
-    summary: makeSummary(contractType, findings, externalAnalyses, "source-static", true),
+    summary: summary.summary,
+    summaryCode: summary.summaryKey,
+    summaryParams: summary.summaryParams,
     findings,
     externalAnalyses,
     analysisMode: "source-static",
     hasVerifiedSource: true
+  };
+}
+
+export function normalizeAuditResult(result, auditMeta = {}) {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+
+  if (!Array.isArray(result.externalAnalyses)) {
+    return result;
+  }
+
+  const externalAnalyses = normalizeExternalAnalyses(result.externalAnalyses);
+  const findings = collectDetectedFindings(externalAnalyses);
+  const contractType = result.contractType || auditMeta.contractType || "general";
+  const analysisMode = result.analysisMode || auditMeta.analysisMode || "unknown";
+  const hasVerifiedSource = typeof result.hasVerifiedSource === "boolean"
+    ? result.hasVerifiedSource
+    : Boolean(result.code || result.sourceRepository || (Array.isArray(result.sourceFiles) && result.sourceFiles.length > 0));
+
+  const summary = result.summaryCode
+    ? {
+      summaryKey: result.summaryCode,
+      summaryParams: result.summaryParams || null,
+      summary: result.summary || ""
+    }
+    : makeSummary(contractType, findings, externalAnalyses, analysisMode, hasVerifiedSource);
+
+  return {
+    ...result,
+    contractType,
+    analysisMode,
+    hasVerifiedSource,
+    findings,
+    externalAnalyses,
+    summary: summary.summary,
+    summaryCode: summary.summaryKey,
+    summaryParams: summary.summaryParams
   };
 }
 
@@ -162,6 +446,13 @@ export async function auditAddress(address, options = {}) {
   const analysisMode = sourceContract
     ? (bytecodeContract ? "source-and-bytecode" : "source-only")
     : "bytecode-only";
+  const summary = makeSummary(
+    contractType,
+    findings,
+    externalAnalyses,
+    analysisMode,
+    Boolean(sourceContract)
+  );
 
   return {
     ...(sourceContract || {
@@ -187,13 +478,9 @@ export async function auditAddress(address, options = {}) {
     hasVerifiedSource: Boolean(sourceContract),
     sourceFetchError: sourceError || null,
     bytecodeFetchError: bytecodeError || null,
-    summary: makeSummary(
-      contractType,
-      findings,
-      externalAnalyses,
-      analysisMode,
-      Boolean(sourceContract)
-    )
+    summary: summary.summary,
+    summaryCode: summary.summaryKey,
+    summaryParams: summary.summaryParams
   };
 }
 
