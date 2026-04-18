@@ -1,9 +1,106 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+resolve_solc_version() {
+  local pragma_expr="$1"
+  local candidates_csv="$2"
+  python3 - "$pragma_expr" "$candidates_csv" <<'PY'
+import re
+import sys
+
+pragma_expr = (sys.argv[1] or "").strip()
+candidates_csv = (sys.argv[2] or "").strip()
+
+def parse_version(value):
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", value or "")
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+def compare(left, right):
+    if left < right:
+        return -1
+    if left > right:
+        return 1
+    return 0
+
+def match_token(version, token):
+    token = token.strip()
+    if not token:
+        return True
+
+    if token.startswith("^"):
+        base = parse_version(token[1:])
+        if not base:
+            return False
+        if compare(version, base) < 0:
+            return False
+        major, minor, patch = base
+        if major > 0:
+            return version[0] == major
+        if minor > 0:
+            return version[0] == 0 and version[1] == minor
+        return version[0] == 0 and version[1] == 0 and version[2] == patch
+
+    if token.startswith("~"):
+        base = parse_version(token[1:])
+        if not base:
+            return False
+        return version[0] == base[0] and version[1] == base[1] and compare(version, base) >= 0
+
+    for prefix in (">=", "<=", ">", "<", "="):
+        if token.startswith(prefix):
+            base = parse_version(token[len(prefix):])
+            if not base:
+                return False
+            cmp = compare(version, base)
+            return {
+                ">=": cmp >= 0,
+                "<=": cmp <= 0,
+                ">": cmp > 0,
+                "<": cmp < 0,
+                "=": cmp == 0
+            }[prefix]
+
+    base = parse_version(token)
+    return compare(version, base) == 0 if base else False
+
+def match_clause(version, clause):
+    tokens = [part for part in re.split(r"\s+", clause.strip()) if part]
+    return all(match_token(version, token) for token in tokens)
+
+def matches(version, expression):
+    clauses = [part.strip() for part in expression.split("||") if part.strip()]
+    return any(match_clause(version, clause) for clause in clauses) if clauses else False
+
+candidates = []
+seen = set()
+for raw in candidates_csv.split(","):
+    item = raw.strip()
+    version = parse_version(item)
+    if not version or version in seen:
+        continue
+    seen.add(version)
+    candidates.append(version)
+
+candidates.sort(reverse=True)
+for candidate in candidates:
+    if matches(candidate, pragma_expr):
+        print(".".join(str(part) for part in candidate))
+        sys.exit(0)
+
+match = re.search(r"(\d+\.\d+\.\d+)", pragma_expr)
+if match:
+    print(match.group(1))
+PY
+}
+
 if [[ "${1:-}" == "--self-check" ]]; then
   slither --version
   solc --version | head -n 1 || true
+  if command -v solc-select >/dev/null 2>&1; then
+    solc-select versions || true
+  fi
   exit 0
 fi
 
@@ -17,7 +114,9 @@ done
 
 if [[ -n "$target" && -f "$target" && -x "$(command -v solc-select)" ]]; then
   pragma_line="$(grep -Eom1 'pragma[[:space:]]+solidity[[:space:]]+[^;]+' "$target" || true)"
-  pragma_version="$(printf '%s' "$pragma_line" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | tail -n 1 || true)"
+  pragma_expr="${pragma_line#*solidity }"
+  installed_versions="${SOLC_VERSIONS:-}"
+  pragma_version="$(resolve_solc_version "$pragma_expr" "$installed_versions")"
   if [[ -n "$pragma_version" ]]; then
     if ! solc-select use "$pragma_version" >/dev/null 2>&1; then
       solc-select install "$pragma_version" >/dev/null 2>&1

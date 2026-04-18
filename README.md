@@ -256,7 +256,7 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 
 - `AUDIT_MYTHRIL_MODE=auto | binary | docker | off`
 - `AUDIT_MYTHRIL_BIN=myth`
-- `AUDIT_MYTHRIL_DOCKER_IMAGE=mythril/myth`
+- `AUDIT_MYTHRIL_DOCKER_IMAGE=mythril/myth@sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff`
 - `AUDIT_MYTHRIL_TIMEOUT=90`
 
 默认 `auto` 会优先尝试本地 `myth` 命令，再回退到 Docker 镜像。
@@ -266,13 +266,13 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 - `AUDIT_SLITHER_MODE=off | docker | auto`
 - `AUDIT_SLITHER_DOCKER_IMAGE=smart-contract-audit-slither:local`
 - `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`
-- `AUDIT_SLITHER_ANALYZER_VERSION=`：可选，固定 `slither-analyzer` 版本
-- `AUDIT_SLITHER_SOLC_VERSIONS=0.4.26,0.5.17,0.6.12,0.7.6,0.8.20,0.8.24`：预装 `solc` 版本列表
+- `AUDIT_SLITHER_ANALYZER_VERSION=0.11.5`：固定 `slither-analyzer` 版本，避免远端和本地结果漂移
+- `AUDIT_SLITHER_SOLC_VERSIONS=0.4.26,0.5.16,0.5.17,0.6.6,0.6.12,0.7.6,0.8.20,0.8.24`：预装 `solc` 版本列表
 - `AUDIT_SLITHER_PIP_INDEX_URL=https://pypi.org/simple`
 - `AUDIT_SLITHER_PIP_TRUSTED_HOST=`：国内网络可改为自有或镜像源
 - `AUDIT_DOCKER_BIN=docker`
 
-项目现在内置了一份可构建的 Slither 镜像定义：`docker/slither/Dockerfile`。推荐先用 compose 构建这份镜像，再启动 HTTP/worker 服务。镜像会预装 `solc-select` 和一组常见 Solidity 编译器版本，并通过 `smart-slither` 自动根据 `pragma solidity` 切换编译器。Apple Silicon / ARM 主机默认建议使用 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。
+项目现在内置了一份可构建的 Slither 镜像定义：`docker/slither/Dockerfile`。推荐先用 compose 构建这份镜像，再启动 HTTP/worker 服务。镜像会预装 `solc-select` 和一组常见 Solidity 编译器版本，并通过 `smart-slither` 根据 `pragma solidity` 优先选择兼容的预装版本，再回退到精确安装。Apple Silicon / ARM 主机默认建议使用 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。
 
 ## 内部生产化改造
 

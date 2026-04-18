@@ -27,12 +27,12 @@ export AUDIT_BLOCKSCOUT_BASE_URLS=1=https://eth.blockscout.com/api/,8453=https:/
 export AUDIT_RPC_URLS=1=https://eth-mainnet.g.alchemy.com/v2/your-key,8453=https://base-mainnet.g.alchemy.com/v2/your-key
 export AUDIT_MYTHRIL_MODE=auto
 export AUDIT_MYTHRIL_BIN=myth
-export AUDIT_MYTHRIL_DOCKER_IMAGE=mythril/myth
+export AUDIT_MYTHRIL_DOCKER_IMAGE=mythril/myth@sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff
 export AUDIT_SLITHER_MODE=docker
 export AUDIT_SLITHER_DOCKER_IMAGE=smart-contract-audit-slither:local
 export AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64
-export AUDIT_SLITHER_ANALYZER_VERSION=
-export AUDIT_SLITHER_SOLC_VERSIONS=0.4.26,0.5.17,0.6.12,0.7.6,0.8.20,0.8.24
+export AUDIT_SLITHER_ANALYZER_VERSION=0.11.5
+export AUDIT_SLITHER_SOLC_VERSIONS=0.4.26,0.5.16,0.5.17,0.6.6,0.6.12,0.7.6,0.8.20,0.8.24
 export AUDIT_SLITHER_PIP_INDEX_URL=https://pypi.org/simple
 export AUDIT_SLITHER_PIP_TRUSTED_HOST=
 export AUDIT_DOCKER_BIN=docker
@@ -41,7 +41,7 @@ export AUDIT_DOCKER_BIN=docker
 如果目标地址是代理合约，且浏览器 API 暴露了 `Implementation` 字段，服务会自动转向实现合约源码进行审计，并在响应里保留代理地址与实现地址。
 如果浏览器没有返回 `Implementation`，但配置了 `AUDIT_RPC_URLS`，服务会继续通过 EIP-1967 `implementation` / `beacon` 槽位和 Beacon `implementation()` 调用尝试识别实现合约。
 如果同时配置了 `AUDIT_RPC_URLS` 和 Mythril 运行环境，地址审计还会追加一层基于 RPC 的字节码分析；即使没有源码，也可以返回 `bytecode-only` 结果。
-如果配置 `AUDIT_SLITHER_MODE=docker` 并且容器可访问 Docker（CLI + `/var/run/docker.sock`），地址审计在有源码时还会追加 Slither 静态分析结果。推荐使用项目内置的 `docker/slither/Dockerfile` 预构建可控镜像，而不是直接依赖公共 `trailofbits/slither`。在 ARM 主机上建议显式设置 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。
+如果配置 `AUDIT_SLITHER_MODE=docker` 并且容器可访问 Docker（CLI + `/var/run/docker.sock`），地址审计在有源码时还会追加 Slither 静态分析结果。推荐使用项目内置的 `docker/slither/Dockerfile` 预构建可控镜像，而不是直接依赖公共 `trailofbits/slither`。在 ARM 主机上建议显式设置 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。为了让远端和本地结果一致，建议同时固定 `AUDIT_SLITHER_ANALYZER_VERSION` 和 `AUDIT_MYTHRIL_DOCKER_IMAGE`，不要继续依赖漂移的 `latest`。
 
 健康检查：
 

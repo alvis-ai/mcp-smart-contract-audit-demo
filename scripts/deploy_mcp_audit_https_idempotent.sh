@@ -13,6 +13,7 @@ APP_PORT="${APP_PORT:-13000}"  # 默认 13000，避免与原 compose 的 3000 �
 ETHERSCAN_KEY="${ETHERSCAN_KEY:-}"
 RPC_URLS="${RPC_URLS:-1=https://ethereum-rpc.publicnode.com,8453=https://mainnet.base.org}"
 MCP_AUTH_TOKEN="${MCP_AUTH_TOKEN:-}"
+MYTHRIL_IMAGE="${MYTHRIL_IMAGE:-mythril/myth@sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff}"
 # ===============
 
 if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
@@ -105,12 +106,12 @@ upsert_env ALLOWED_ORIGINS "https://${DOMAIN}" .env
 upsert_env AUDIT_ETHERSCAN_API_KEY "$ETHERSCAN_KEY" .env
 upsert_env AUDIT_RPC_URLS "$RPC_URLS" .env
 upsert_env AUDIT_MYTHRIL_MODE "docker" .env
-upsert_env AUDIT_MYTHRIL_DOCKER_IMAGE "mythril/myth:latest" .env
+upsert_env AUDIT_MYTHRIL_DOCKER_IMAGE "$MYTHRIL_IMAGE" .env
 upsert_env AUDIT_SLITHER_MODE "docker" .env
 upsert_env AUDIT_SLITHER_DOCKER_IMAGE "smart-contract-audit-slither:local" .env
 upsert_env AUDIT_SLITHER_DOCKER_PLATFORM "linux/amd64" .env
-upsert_env AUDIT_SLITHER_ANALYZER_VERSION "" .env
-upsert_env AUDIT_SLITHER_SOLC_VERSIONS "0.4.26,0.5.17,0.6.12,0.7.6,0.8.20,0.8.24" .env
+upsert_env AUDIT_SLITHER_ANALYZER_VERSION "0.11.5" .env
+upsert_env AUDIT_SLITHER_SOLC_VERSIONS "0.4.26,0.5.16,0.5.17,0.6.6,0.6.12,0.7.6,0.8.20,0.8.24" .env
 upsert_env AUDIT_SLITHER_PIP_INDEX_URL "https://pypi.org/simple" .env
 upsert_env AUDIT_SLITHER_PIP_TRUSTED_HOST "" .env
 upsert_env AUDIT_DOCKER_BIN "docker" .env
@@ -137,6 +138,8 @@ fi
 echo "[8/10] 构建工具镜像并启动容器"
 compose_cmd -f "$RUNTIME_COMPOSE" down --remove-orphans || true
 compose_cmd --profile tooling -f "$RUNTIME_COMPOSE" build smart-contract-audit-slither-image smart-contract-audit-mcp-http smart-contract-audit-mcp-worker
+compose_cmd --profile tooling -f "$RUNTIME_COMPOSE" run --rm smart-contract-audit-slither-image smart-slither --self-check
+docker run --rm "$MYTHRIL_IMAGE" myth version
 compose_cmd -f "$RUNTIME_COMPOSE" up -d smart-contract-audit-db smart-contract-audit-mcp-http smart-contract-audit-mcp-worker
 
 echo "[9/10] 配置 Nginx"
