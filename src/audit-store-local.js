@@ -34,6 +34,20 @@ function stripLargeFields(result) {
   };
 }
 
+function parseJson(value) {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "object") {
+    return value;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 function ensureColumn(db, tableName, columnName, definition) {
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
   if (!columns.some((column) => column.name === columnName)) {
@@ -86,6 +100,7 @@ function getDatabase() {
   ensureColumn(database, "audit_jobs", "worker_id", "TEXT");
   ensureColumn(database, "audit_jobs", "lease_until", "TEXT");
   ensureColumn(database, "audit_jobs", "last_heartbeat_at", "TEXT");
+  ensureColumn(database, "audit_jobs", "progress_json", "TEXT");
 
   migrateLegacyJsonAuditHistory(database);
   return database;
@@ -177,6 +192,7 @@ function mapAuditJob(row) {
     workerId: row.worker_id,
     leaseUntil: row.lease_until,
     lastHeartbeatAt: row.last_heartbeat_at,
+    progress: parseJson(row.progress_json) || null,
     result: normalizedResult
   };
 }
@@ -401,6 +417,7 @@ export function claimNextQueuedJob(workerId, leaseMs) {
           worker_id = ?,
           lease_until = ?,
           last_heartbeat_at = ?,
+          progress_json = NULL,
           attempts = attempts + 1
       WHERE id = ?
         AND status = 'queued'
@@ -425,6 +442,16 @@ export function heartbeatRunningJob(id, workerId, leaseMs) {
   `).run(leaseUntil, now, now, id, workerId);
 }
 
+export function updateAuditJobProgress(id, workerId, progress) {
+  const db = getDatabase();
+  const now = nowIso();
+  db.prepare(`
+    UPDATE audit_jobs
+    SET progress_json = ?, updated_at = ?, last_heartbeat_at = ?
+    WHERE id = ? AND worker_id = ? AND status = 'running'
+  `).run(JSON.stringify(progress || null), now, now, id, workerId);
+}
+
 export function markAuditJobSucceeded(id, workerId, result) {
   const db = getDatabase();
   const now = nowIso();
@@ -435,6 +462,7 @@ export function markAuditJobSucceeded(id, workerId, result) {
         summary = ?,
         analysis_mode = ?,
         result_json = ?,
+        progress_json = NULL,
         error_message = NULL,
         updated_at = ?,
         finished_at = ?,
@@ -470,6 +498,7 @@ export function requeueAuditJob(id, workerId, errorMessage, delayMs = 0) {
         worker_id = NULL,
         lease_until = NULL,
         last_heartbeat_at = NULL,
+        progress_json = NULL,
         next_attempt_at = ?
     WHERE id = ? AND worker_id = ?
   `).run(errorMessage, now, nextAttemptAt, id, workerId);
@@ -488,7 +517,8 @@ export function markAuditJobFailed(id, workerId, errorMessage, status = "failed"
         finished_at = ?,
         worker_id = ?,
         lease_until = NULL,
-        last_heartbeat_at = ?
+        last_heartbeat_at = ?,
+        progress_json = NULL
     WHERE id = ? AND worker_id = ?
   `).run(
     status,

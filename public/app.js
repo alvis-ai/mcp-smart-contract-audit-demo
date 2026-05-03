@@ -14,7 +14,7 @@ const TRANSLATIONS = {
     pageTitle: "Smart Contract Audit Console",
     "brand.eyebrow": "MCP Audit Console",
     "brand.title": "链上审计台",
-    "brand.copy": "基于 Slither / Mythril 的链上合约检测台。源码可得时优先走源码分析，代理合约会继续跟踪实现合约。",
+    "brand.copy": "基于 Slither / Aderyn / Mythril 的链上合约检测台。源码可得时优先走源码分析，代理合约会继续跟踪实现合约。",
     "token.title": "MCP Token",
     "token.label": "Bearer Token",
     "token.placeholder": "可选，仅在你手动调用 /mcp 时需要",
@@ -25,10 +25,10 @@ const TRANSLATIONS = {
     "history.empty": "还没有历史记录。",
     "hero.eyebrow": "Audit Operations",
     "hero.title": "线上合约审计",
-    "hero.copy": "输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入 Slither 与 Mythril。",
+    "hero.copy": "输入合约地址后，服务会自动尝试 Sourcify、Etherscan、Blockscout、RPC 代理解析，并在可用时接入 Slither、Aderyn 与 Mythril。",
     "hero.step1": "01 Source / Implementation",
     "hero.step2": "02 Slither",
-    "hero.step3": "03 Mythril",
+    "hero.step3": "03 Aderyn",
     "hero.note": "源码分析与字节码分析尽量对准同一实现合约；没有源码时仅保留字节码引擎。",
     "form.address": "合约地址",
     "form.network": "网络",
@@ -50,8 +50,23 @@ const TRANSLATIONS = {
     "result.loadingTitleQueued": "任务已进入队列",
     "result.loadingTitleRunning": "分析正在进行",
     "result.loadingCopyQueued": "服务已经接收请求，任务会按队列顺序启动。页面会自动刷新，你不需要手动重试。",
-    "result.loadingCopyRunning": "分析器正在抓取源码、解析代理并执行 Slither / Mythril。页面会自动刷新并更新结果。",
+    "result.loadingCopyRunning": "分析器正在抓取源码、解析代理并执行 Slither / Aderyn / Mythril。页面会自动刷新并更新结果。",
     "result.loadingPulse": "分析中",
+    "progress.current": "当前阶段",
+    "progress.elapsed": "已耗时",
+    "progress.source_fetch": "源码拉取",
+    "progress.cache_check": "缓存检查",
+    "progress.bytecode_fetch": "字节码读取",
+    "progress.tool_analysis": "工具分析",
+    "progress.ai_source_review": "AI 源码审计",
+    "progress.ai_final_report": "AI 报告汇总",
+    "progress.ai_translation": "AI 翻译",
+    "progress.knowledge_store": "知识库写入",
+    "progress.pending": "等待中",
+    "progress.running": "进行中",
+    "progress.completed": "已完成",
+    "progress.failed": "失败",
+    "progress.skipped": "已跳过",
     "result.status": "状态",
     "result.summary": "总结",
     "result.started": "开始时间",
@@ -77,6 +92,16 @@ const TRANSLATIONS = {
     "result.advisoryFindingsCount": "{count} 个提示项",
     "result.advisoryCollapsed": "默认折叠，按需展开",
     "result.noFindings": "当前配置下没有检测到可展示的问题。",
+    "ai.title": "AI 审计报告",
+    "ai.status": "状态",
+    "ai.model": "模型",
+    "ai.mode": "模式",
+    "ai.riskLevel": "风险等级",
+    "ai.summary": "AI 总结",
+    "ai.findings": "AI 汇总问题",
+    "ai.suggestions": "修改建议",
+    "ai.markdown": "完整报告",
+    "ai.empty": "当前结果没有 AI 报告。请确认已配置模型，且任务不是旧缓存结果。",
     "result.raw": "查看原始 JSON",
     "result.selectAudit": "选择一条审计记录后查看",
     "engine.title": "分析引擎",
@@ -108,7 +133,7 @@ const TRANSLATIONS = {
     "common.pc": "pc {pc}",
     "common.whyShort": "Why",
     "common.fixShort": "Fix",
-    "summary.audit.noEngine": "{contractType} 合约未能成功运行任何第三方分析器（{analysisMode}）。在信任结果前请先检查 Slither / Mythril 配置。",
+    "summary.audit.noEngine": "{contractType} 合约未能成功运行任何第三方分析器（{analysisMode}）。在信任结果前请先检查 Slither / Aderyn / Mythril 配置。",
     "summary.audit.noIssues": "{contractType} 合约已完成{analysisMode}{verifiedSourceNote}。第三方分析器未报告问题，但仍需要人工复核。",
     "summary.audit.noIssues.verifiedSource": "，且已获取已验证源码",
     "summary.audit.withIssues": "{contractType} 合约已完成{analysisMode}，共发现 {issueCount} 个问题，其中 {highSeverityCount} 个为高危，结果来自 {engineCount} 个第三方分析器。",
@@ -116,6 +141,7 @@ const TRANSLATIONS = {
     "summary.engine.noIssues": "{engine} 执行完成，未报告问题。",
     "summary.engine.skippedNoSource": "{engine} 已跳过，因为当前没有可用的已验证源码。",
     "summary.engine.skippedNoRpc": "{engine} 已跳过，因为当前解析链没有可用的 RPC 端点。",
+    "summary.engine.skippedLargeBytecode": "{engine} 已跳过，因为字节码大小 {bytecodeSize} bytes 超过阈值 {maxBytecodeSize} bytes。",
     "summary.engine.disabled": "{engine} 已禁用。",
     "summary.engine.unavailable": "{engine} 无法执行。{detail}",
     "finding.txOrigin.why": "合约使用 tx.origin 做权限判断。攻击者可以通过中间合约诱导授权用户发起交易，从而绕过预期的调用边界。",
@@ -163,7 +189,7 @@ const TRANSLATIONS = {
     pageTitle: "Smart Contract Audit Console",
     "brand.eyebrow": "MCP Audit Console",
     "brand.title": "On-chain Audit Console",
-    "brand.copy": "A contract analysis console backed by Slither and Mythril. Verified source is preferred, and proxy contracts follow their implementation target.",
+    "brand.copy": "A contract analysis console backed by Slither, Aderyn, and Mythril. Verified source is preferred, and proxy contracts follow their implementation target.",
     "token.title": "MCP Token",
     "token.label": "Bearer Token",
     "token.placeholder": "Optional. Only needed when you call /mcp directly.",
@@ -174,10 +200,10 @@ const TRANSLATIONS = {
     "history.empty": "No audit history yet.",
     "hero.eyebrow": "Audit Operations",
     "hero.title": "Contract Audit",
-    "hero.copy": "Enter a contract address and the service will try Sourcify, Etherscan, Blockscout, and RPC-based proxy resolution, then attach Slither and Mythril when available.",
+    "hero.copy": "Enter a contract address and the service will try Sourcify, Etherscan, Blockscout, and RPC-based proxy resolution, then attach Slither, Aderyn, and Mythril when available.",
     "hero.step1": "01 Source / Implementation",
     "hero.step2": "02 Slither",
-    "hero.step3": "03 Mythril",
+    "hero.step3": "03 Aderyn",
     "hero.note": "Source and bytecode analyzers are aligned to the same implementation target whenever possible. Without source, only bytecode engines remain.",
     "form.address": "Contract Address",
     "form.network": "Network",
@@ -199,8 +225,23 @@ const TRANSLATIONS = {
     "result.loadingTitleQueued": "Job queued",
     "result.loadingTitleRunning": "Analysis in progress",
     "result.loadingCopyQueued": "The service accepted the request and will start it when the queue slot is available. This page refreshes automatically.",
-    "result.loadingCopyRunning": "The analyzers are fetching source, resolving proxies, and running Slither / Mythril. This page refreshes automatically.",
+    "result.loadingCopyRunning": "The analyzers are fetching source, resolving proxies, and running Slither / Aderyn / Mythril. This page refreshes automatically.",
     "result.loadingPulse": "Analyzing",
+    "progress.current": "Current Stage",
+    "progress.elapsed": "Elapsed",
+    "progress.source_fetch": "Source Fetch",
+    "progress.cache_check": "Cache Check",
+    "progress.bytecode_fetch": "Bytecode Fetch",
+    "progress.tool_analysis": "Tool Analysis",
+    "progress.ai_source_review": "AI Source Review",
+    "progress.ai_final_report": "AI Report Summary",
+    "progress.ai_translation": "AI Translation",
+    "progress.knowledge_store": "Knowledge Store",
+    "progress.pending": "Pending",
+    "progress.running": "Running",
+    "progress.completed": "Completed",
+    "progress.failed": "Failed",
+    "progress.skipped": "Skipped",
     "result.status": "Status",
     "result.summary": "Summary",
     "result.started": "Started",
@@ -226,6 +267,16 @@ const TRANSLATIONS = {
     "result.advisoryFindingsCount": "{count} advisories",
     "result.advisoryCollapsed": "Collapsed by default",
     "result.noFindings": "No displayable issues were reported by the configured analyzers.",
+    "ai.title": "AI Audit Report",
+    "ai.status": "Status",
+    "ai.model": "Model",
+    "ai.mode": "Mode",
+    "ai.riskLevel": "Risk Level",
+    "ai.summary": "AI Summary",
+    "ai.findings": "AI Findings",
+    "ai.suggestions": "Modification Suggestions",
+    "ai.markdown": "Full Report",
+    "ai.empty": "No AI report is available for this result. Check model configuration or whether this is an older cached result.",
     "result.raw": "View raw JSON",
     "result.selectAudit": "Select an audit run to inspect",
     "engine.title": "Analyzers",
@@ -257,7 +308,7 @@ const TRANSLATIONS = {
     "common.pc": "pc {pc}",
     "common.whyShort": "Why",
     "common.fixShort": "Fix",
-    "summary.audit.noEngine": "{contractType} contract analysis could not run any third-party engine in {analysisMode}. Check Slither/Mythril configuration before trusting the result.",
+    "summary.audit.noEngine": "{contractType} contract analysis could not run any third-party engine in {analysisMode}. Check Slither/Aderyn/Mythril configuration before trusting the result.",
     "summary.audit.noIssues": "{contractType} contract analysis completed in {analysisMode}{verifiedSourceNote}. Third-party engines reported no issues, but manual review is still required.",
     "summary.audit.noIssues.verifiedSource": " with verified source",
     "summary.audit.withIssues": "{contractType} contract analysis completed in {analysisMode} with {issueCount} issue(s), including {highSeverityCount} high-severity item(s), from {engineCount} third-party engine(s).",
@@ -265,6 +316,7 @@ const TRANSLATIONS = {
     "summary.engine.noIssues": "{engine} completed without reporting issues.",
     "summary.engine.skippedNoSource": "{engine} was skipped because verified source was not available.",
     "summary.engine.skippedNoRpc": "{engine} was skipped because no RPC endpoint was available for the resolved chain.",
+    "summary.engine.skippedLargeBytecode": "{engine} was skipped because bytecode size {bytecodeSize} bytes exceeds the {maxBytecodeSize} byte limit.",
     "summary.engine.disabled": "{engine} integration is disabled.",
     "summary.engine.unavailable": "{engine} could not be executed. {detail}",
     "finding.txOrigin.why": "The contract uses tx.origin for authorization. An attacker can route a privileged user's transaction through an intermediary contract and bypass the intended trust boundary.",
@@ -375,6 +427,7 @@ const ANALYSIS_MODE_LABELS = {
 
 const ENGINE_TITLE_LABELS = {
   "Slither source analysis": { "zh-CN": "Slither 源码分析", "en-US": "Slither source analysis" },
+  "Aderyn source analysis": { "zh-CN": "Aderyn 源码分析", "en-US": "Aderyn source analysis" },
   "Mythril bytecode analysis": { "zh-CN": "Mythril 字节码分析", "en-US": "Mythril bytecode analysis" }
 };
 
@@ -435,6 +488,63 @@ function formatStatusLabel(value) {
   return translateLabel(STATUS_LABELS, String(value || "").toLowerCase()) || t("common.unknown");
 }
 
+function formatDuration(ms) {
+  if (!Number.isFinite(Number(ms)) || Number(ms) < 0) {
+    return "";
+  }
+  const seconds = Number(ms) / 1000;
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
+}
+
+function formatElapsedSince(value) {
+  if (!value) {
+    return "";
+  }
+  const started = new Date(value).getTime();
+  if (!Number.isFinite(started)) {
+    return "";
+  }
+  return formatDuration(Date.now() - started);
+}
+
+function formatProgressStageLabel(stageId) {
+  return t(`progress.${stageId}`) || stageId;
+}
+
+function formatProgressStatus(status) {
+  return t(`progress.${status || "pending"}`) || status || "";
+}
+
+function renderAuditProgress(progress) {
+  if (!progress || !Array.isArray(progress.stages) || progress.stages.length === 0) {
+    return "";
+  }
+  const current = progress.currentStage ? formatProgressStageLabel(progress.currentStage) : "";
+  const elapsed = formatElapsedSince(progress.startedAt);
+  return `
+    <div class="progress-panel">
+      <div class="progress-head">
+        ${current ? `<span>${escapeHtml(t("progress.current"))}: <strong>${escapeHtml(current)}</strong></span>` : ""}
+        ${elapsed ? `<span>${escapeHtml(t("progress.elapsed"))}: <strong>${escapeHtml(elapsed)}</strong></span>` : ""}
+      </div>
+      <div class="progress-list">
+        ${progress.stages.map((stage) => `
+          <div class="progress-item ${escapeHtml(stage.status || "pending")}">
+            <span class="progress-dot"></span>
+            <div>
+              <div class="progress-title">
+                <strong>${escapeHtml(formatProgressStageLabel(stage.id))}</strong>
+                <span>${escapeHtml(formatProgressStatus(stage.status))}${stage.durationMs != null ? ` · ${escapeHtml(formatDuration(stage.durationMs))}` : ""}</span>
+              </div>
+              ${stage.detail ? `<p>${escapeHtml(stage.detail)}</p>` : ""}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function formatAnalysisModeLabel(value) {
   return translateLabel(ANALYSIS_MODE_LABELS, value) || value || "-";
 }
@@ -448,10 +558,13 @@ function formatIssueTitle(value) {
 }
 
 function formatFindingGuidance(rawText, guidanceKey, fallbackKey, params = {}) {
+  if (rawText && (!guidanceKey || String(guidanceKey).includes("generic"))) {
+    return rawText;
+  }
   if (guidanceKey) {
     return t(guidanceKey, params);
   }
-  if (fallbackKey) {
+  if (fallbackKey && !rawText) {
     return t(fallbackKey, params);
   }
   return rawText || t("common.noDescription");
@@ -491,6 +604,10 @@ function formatSummaryText(summary, summaryCode = "", summaryParams = null) {
   if (match) {
     return `Mythril 报告了 ${match[1]} 个问题。`;
   }
+  match = text.match(/^Aderyn reported (\d+) issue\(s\)\.$/);
+  if (match) {
+    return `Aderyn 报告了 ${match[1]} 个问题。`;
+  }
 
   match = text.match(/^(.+?) contract analysis completed in (.+?) mode with (\d+) issue\(s\), including (\d+) high-severity item\(s\), from (\d+) third-party engine\(s\)\.$/);
   if (match) {
@@ -502,9 +619,9 @@ function formatSummaryText(summary, summaryCode = "", summaryParams = null) {
     return `${match[1]} 合约已完成${formatAnalysisModeLabel(match[2])}。第三方分析器未报告问题，但仍需要人工复核。`;
   }
 
-  match = text.match(/^(.+?) contract analysis could not run any third-party engine in (.+?) mode\. Check Slither\/Mythril configuration before trusting the result\.$/);
+  match = text.match(/^(.+?) contract analysis could not run any third-party engine in (.+?) mode\. Check Slither\/Aderyn\/Mythril configuration before trusting the result\.$/);
   if (match) {
-    return `${match[1]} 合约未能成功运行任何第三方分析器（${formatAnalysisModeLabel(match[2])}）。在信任结果前请先检查 Slither / Mythril 配置。`;
+    return `${match[1]} 合约未能成功运行任何第三方分析器（${formatAnalysisModeLabel(match[2])}）。在信任结果前请先检查 Slither / Aderyn / Mythril 配置。`;
   }
 
   if (text === "Slither completed without reporting issues.") {
@@ -513,11 +630,17 @@ function formatSummaryText(summary, summaryCode = "", summaryParams = null) {
   if (text === "Mythril completed without reporting issues.") {
     return "Mythril 执行完成，未报告问题。";
   }
+  if (text === "Aderyn completed without reporting issues.") {
+    return "Aderyn 执行完成，未报告问题。";
+  }
   if (text.startsWith("Slither could not be executed.")) {
     return `Slither 无法执行。${text.slice("Slither could not be executed.".length).trim()}`;
   }
   if (text.startsWith("Mythril could not be executed.")) {
     return `Mythril 无法执行。${text.slice("Mythril could not be executed.".length).trim()}`;
+  }
+  if (text.startsWith("Aderyn could not be executed.")) {
+    return `Aderyn 无法执行。${text.slice("Aderyn could not be executed.".length).trim()}`;
   }
 
   return text;
@@ -604,6 +727,162 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#96;");
+}
+
+function renderInlineMarkdown(text) {
+  const codeSpans = [];
+  let html = escapeHtml(text).replace(/`([^`]+)`/g, (_, code) => {
+    const token = `\u0000CODE${codeSpans.length}\u0000`;
+    codeSpans.push(`<code>${code}</code>`);
+    return token;
+  });
+  html = html
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/g, (_, label, href) => (
+      `<a href="${escapeAttribute(href)}" target="_blank" rel="noreferrer">${label}</a>`
+    ));
+  return html.replace(/\u0000CODE(\d+)\u0000/g, (_, index) => codeSpans[Number(index)] || "");
+}
+
+function renderMarkdownTable(lines) {
+  const rows = lines.map((line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
+  if (rows.length < 2) {
+    return "";
+  }
+  const headers = rows[0];
+  const bodyRows = rows.slice(2);
+  return `
+    <div class="markdown-table-wrap">
+      <table>
+        <thead><tr>${headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead>
+        <tbody>
+          ${bodyRows.map((row) => `<tr>${headers.map((_, index) => `<td>${renderInlineMarkdown(row[index] || "")}</td>`).join("")}</tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMarkdown(markdown) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let paragraph = [];
+  let list = null;
+  let table = [];
+  let inCode = false;
+  let codeLang = "";
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) {
+      return;
+    }
+    html.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!list) {
+      return;
+    }
+    html.push(`<${list.type}>${list.items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${list.type}>`);
+    list = null;
+  };
+  const flushTable = () => {
+    if (!table.length) {
+      return;
+    }
+    const rendered = renderMarkdownTable(table);
+    if (rendered) {
+      html.push(rendered);
+    } else {
+      paragraph.push(...table);
+    }
+    table = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const fence = trimmed.match(/^```([\w-]*)/);
+    if (fence) {
+      if (inCode) {
+        html.push(`<pre><code${codeLang ? ` class="language-${escapeAttribute(codeLang)}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        inCode = false;
+        codeLang = "";
+        codeLines = [];
+      } else {
+        flushParagraph();
+        flushList();
+        flushTable();
+        inCode = true;
+        codeLang = fence[1] || "";
+      }
+      continue;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      flushTable();
+      continue;
+    }
+    if (/^\|.+\|$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      table.push(trimmed);
+      continue;
+    }
+    flushTable();
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length + 1;
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+    if (/^---+$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      html.push("<hr>");
+      continue;
+    }
+    const quote = trimmed.match(/^>\s+(.+)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      html.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+      continue;
+    }
+    const unordered = trimmed.match(/^[-*]\s+(.+)$/);
+    const ordered = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const type = unordered ? "ul" : "ol";
+      if (!list || list.type !== type) {
+        flushList();
+        list = { type, items: [] };
+      }
+      list.items.push((unordered || ordered)[1]);
+      continue;
+    }
+    flushList();
+    paragraph.push(trimmed);
+  }
+  if (inCode) {
+    html.push(`<pre><code${codeLang ? ` class="language-${escapeAttribute(codeLang)}"` : ""}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+  }
+  flushParagraph();
+  flushList();
+  flushTable();
+  return html.join("\n");
 }
 
 function renderAuditList() {
@@ -713,6 +992,7 @@ function appendEngineResults(container, audit) {
       meta.innerHTML = [
         analysis.driver ? `<span class="chip">${escapeHtml(analysis.driver)}</span>` : "",
         analysis.mode ? `<span class="chip">${escapeHtml(analysis.mode)}</span>` : "",
+        analysis.durationMs ? `<span class="chip">${escapeHtml(formatDuration(analysis.durationMs))}</span>` : "",
         typeof analysis.issueCount === "number" ? `<span class="chip">${escapeHtml(t("common.issueCount", { count: analysis.issueCount }))}</span>` : "",
         chainLabel ? `<span class="chip">${escapeHtml(chainLabel)}</span>` : ""
       ].filter(Boolean).join("");
@@ -740,6 +1020,101 @@ function appendEngineResults(container, audit) {
   }
 
   section.appendChild(list);
+  container.appendChild(section);
+}
+
+function renderAiReportSection(container, audit) {
+  const ai = audit.result?.ai || null;
+  const section = document.createElement("section");
+  section.className = "ai-section";
+  section.innerHTML = `
+    <div class="section-head">
+      <h3>${escapeHtml(t("ai.title"))}</h3>
+      <span class="panel-note">${escapeHtml(ai?.status || t("common.unknown"))}</span>
+    </div>
+  `;
+
+  if (!ai || ai.status !== "ok") {
+    const empty = document.createElement("div");
+    empty.className = "ai-card";
+    empty.innerHTML = `<p class="empty-state">${escapeHtml(ai?.summary || ai?.errorMessage || t("ai.empty"))}</p>`;
+    section.appendChild(empty);
+    container.appendChild(section);
+    return;
+  }
+
+  const localizedAi = ai.translations?.[state.locale] || (state.locale === "en-US" ? ai.translations?.["en-US"] : null) || {};
+  const finalReport = localizedAi.finalReport || ai.finalReport || {};
+  const sourceAnalysis = ai.sourceAnalysis || {};
+  const findings = Array.isArray(finalReport.findings) ? finalReport.findings : [];
+  const suggestions = Array.isArray(finalReport.modificationSuggestions) ? finalReport.modificationSuggestions : [];
+
+  const overview = document.createElement("div");
+  overview.className = "ai-card";
+  overview.innerHTML = `
+    <div class="ai-meta chip-row">
+      ${ai.model ? `<span class="chip">${escapeHtml(t("ai.model"))}: ${escapeHtml(ai.model)}</span>` : ""}
+      ${ai.mode ? `<span class="chip">${escapeHtml(t("ai.mode"))}: ${escapeHtml(ai.mode)}</span>` : ""}
+      ${ai.riskLevel ? `<span class="chip">${escapeHtml(t("ai.riskLevel"))}: ${escapeHtml(ai.riskLevel)}</span>` : ""}
+      ${audit.result.cache?.status ? `<span class="chip">cache: ${escapeHtml(audit.result.cache.status)}</span>` : ""}
+    </div>
+    <h4>${escapeHtml(t("ai.summary"))}</h4>
+    <p>${escapeHtml(finalReport.executiveSummary || sourceAnalysis.executiveSummary || ai.executiveSummary || t("common.noSummary"))}</p>
+  `;
+  section.appendChild(overview);
+
+  if (findings.length > 0) {
+    const findingCard = document.createElement("div");
+    findingCard.className = "ai-card";
+    findingCard.innerHTML = `
+      <h4>${escapeHtml(t("ai.findings"))}</h4>
+      <div class="ai-list">
+        ${findings.map((finding) => `
+          <article class="ai-list-item">
+            <div class="finding-head">
+              <span class="badge">${escapeHtml(String(finding.severity || "info").toUpperCase())}</span>
+              <h5>${escapeHtml(finding.title || "Unnamed issue")}</h5>
+            </div>
+            <p><strong>Evidence:</strong> ${escapeHtml(finding.evidence || "-")}</p>
+            <p><strong>Impact:</strong> ${escapeHtml(finding.impact || "-")}</p>
+            <p><strong>Fix:</strong> ${escapeHtml(finding.recommendation || "-")}</p>
+          </article>
+        `).join("")}
+      </div>
+    `;
+    section.appendChild(findingCard);
+  }
+
+  if (suggestions.length > 0) {
+    const suggestionCard = document.createElement("div");
+    suggestionCard.className = "ai-card";
+    suggestionCard.innerHTML = `
+      <h4>${escapeHtml(t("ai.suggestions"))}</h4>
+      <div class="ai-list">
+        ${suggestions.map((item) => `
+          <article class="ai-list-item compact">
+            <strong>${escapeHtml(String(item.priority || "").toUpperCase())} · ${escapeHtml(item.title || "")}</strong>
+            <p>${escapeHtml(item.suggestion || "")}</p>
+            ${item.rationale ? `<p class="panel-note">${escapeHtml(item.rationale)}</p>` : ""}
+          </article>
+        `).join("")}
+      </div>
+    `;
+    section.appendChild(suggestionCard);
+  }
+
+  const reportMarkdown = localizedAi.reportMarkdown || finalReport.reportMarkdown || ai.reportMarkdown || "";
+  if (reportMarkdown) {
+    const report = document.createElement("details");
+    report.className = "ai-card ai-report";
+    report.open = true;
+    report.innerHTML = `
+      <summary>${escapeHtml(t("ai.markdown"))}</summary>
+      <div class="markdown-body">${renderMarkdown(reportMarkdown)}</div>
+    `;
+    section.appendChild(report);
+  }
+
   container.appendChild(section);
 }
 
@@ -898,6 +1273,7 @@ function renderSelectedAudit() {
             <span class="chip">${escapeHtml(t("result.summary"))}: ${escapeHtml(formatSummaryText(audit.summary || "Queued for analysis."))}</span>
             <span class="chip">${escapeHtml(t("result.started"))}: ${escapeHtml(audit.startedAt ? formatDate(audit.startedAt, state.locale) : "-")}</span>
           </div>
+          ${renderAuditProgress(audit.progress)}
         </div>
       </div>
     `;
@@ -916,6 +1292,7 @@ function renderSelectedAudit() {
   }
 
   resultView.appendChild(renderSummaryGrid(audit));
+  renderAiReportSection(resultView, audit);
 
   if (audit.result.proxyAddress || audit.result.implementationAddress) {
     const proxy = document.createElement("div");

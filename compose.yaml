@@ -12,8 +12,19 @@ services:
     image: ${AUDIT_SLITHER_DOCKER_IMAGE:-smart-contract-audit-slither:local}
     profiles: ["tooling"]
 
+  smart-contract-audit-aderyn-image:
+    platform: ${AUDIT_ADERYN_DOCKER_PLATFORM:-linux/amd64}
+    build:
+      context: .
+      dockerfile: docker/aderyn/Dockerfile
+      args:
+        ADERYN_VERSION: ${AUDIT_ADERYN_VERSION:-0.6.8}
+        ADERYN_ARTIFACT_URL: ${AUDIT_ADERYN_ARTIFACT_URL:-https://github.com/cyfrin/aderyn/releases/download/aderyn-v0.6.8/aderyn-x86_64-unknown-linux-gnu.tar.xz}
+    image: ${AUDIT_ADERYN_DOCKER_IMAGE:-smart-contract-audit-aderyn:local}
+    profiles: ["tooling"]
+
   smart-contract-audit-db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -39,6 +50,14 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@smart-contract-audit-db:5432/smart_contract_audit
       AUDIT_SLITHER_DOCKER_IMAGE: ${AUDIT_SLITHER_DOCKER_IMAGE:-smart-contract-audit-slither:local}
       AUDIT_SLITHER_DOCKER_PLATFORM: ${AUDIT_SLITHER_DOCKER_PLATFORM:-linux/amd64}
+      AUDIT_ADERYN_DOCKER_IMAGE: ${AUDIT_ADERYN_DOCKER_IMAGE:-smart-contract-audit-aderyn:local}
+      AUDIT_ADERYN_DOCKER_PLATFORM: ${AUDIT_ADERYN_DOCKER_PLATFORM:-linux/amd64}
+      AUDIT_AI_ENABLED: ${AUDIT_AI_ENABLED:-auto}
+      AUDIT_AI_MODEL: ${AUDIT_AI_MODEL:-gpt-4o-mini}
+      AUDIT_AI_EMBEDDING_MODEL: ${AUDIT_AI_EMBEDDING_MODEL:-text-embedding-3-small}
+      AUDIT_AI_BASE_URL: ${AUDIT_AI_BASE_URL:-}
+      AUDIT_AI_API_KEY: ${AUDIT_AI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -57,6 +76,14 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@smart-contract-audit-db:5432/smart_contract_audit
       AUDIT_SLITHER_DOCKER_IMAGE: ${AUDIT_SLITHER_DOCKER_IMAGE:-smart-contract-audit-slither:local}
       AUDIT_SLITHER_DOCKER_PLATFORM: ${AUDIT_SLITHER_DOCKER_PLATFORM:-linux/amd64}
+      AUDIT_ADERYN_DOCKER_IMAGE: ${AUDIT_ADERYN_DOCKER_IMAGE:-smart-contract-audit-aderyn:local}
+      AUDIT_ADERYN_DOCKER_PLATFORM: ${AUDIT_ADERYN_DOCKER_PLATFORM:-linux/amd64}
+      AUDIT_AI_ENABLED: ${AUDIT_AI_ENABLED:-auto}
+      AUDIT_AI_MODEL: ${AUDIT_AI_MODEL:-gpt-4o-mini}
+      AUDIT_AI_EMBEDDING_MODEL: ${AUDIT_AI_EMBEDDING_MODEL:-text-embedding-3-small}
+      AUDIT_AI_BASE_URL: ${AUDIT_AI_BASE_URL:-}
+      AUDIT_AI_API_KEY: ${AUDIT_AI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

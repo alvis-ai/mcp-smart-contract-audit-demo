@@ -5,9 +5,14 @@ import { getProjectRoot } from "./knowledge-base.js";
 
 const DEFAULT_DOCKER_BIN = process.env.AUDIT_DOCKER_BIN || "docker";
 const DEFAULT_MYTHRIL_DOCKER_IMAGE = process.env.AUDIT_MYTHRIL_DOCKER_IMAGE || "mythril/myth";
-const DEFAULT_MYTHRIL_TIMEOUT = Number(process.env.AUDIT_MYTHRIL_TIMEOUT || 90);
+const DEFAULT_MYTHRIL_TIMEOUT = Math.max(1, Number(process.env.AUDIT_MYTHRIL_TIMEOUT || 90));
+const DEFAULT_MYTHRIL_MAX_BYTECODE_BYTES = Math.max(0, Number(process.env.AUDIT_MYTHRIL_MAX_BYTECODE_BYTES || 16000));
 const DEFAULT_SLITHER_DOCKER_IMAGE = process.env.AUDIT_SLITHER_DOCKER_IMAGE || "smart-contract-audit-slither:local";
 const DEFAULT_SLITHER_DOCKER_PLATFORM = process.env.AUDIT_SLITHER_DOCKER_PLATFORM || "";
+const DEFAULT_SLITHER_TIMEOUT = Math.max(1, Number(process.env.AUDIT_SLITHER_TIMEOUT || 90));
+const DEFAULT_ADERYN_DOCKER_IMAGE = process.env.AUDIT_ADERYN_DOCKER_IMAGE || "smart-contract-audit-aderyn:local";
+const DEFAULT_ADERYN_DOCKER_PLATFORM = process.env.AUDIT_ADERYN_DOCKER_PLATFORM || "";
+const DEFAULT_ADERYN_TIMEOUT = Math.max(1, Number(process.env.AUDIT_ADERYN_TIMEOUT || 60));
 const MYTHRIL_SWC_TITLES = {
   "SWC-104": "Unchecked external call result",
   "SWC-107": "Reentrancy",
@@ -198,7 +203,15 @@ function resolveSlitherMode() {
   return "off";
 }
 
-function runCommand(command, args) {
+function resolveAderynMode() {
+  const mode = String(process.env.AUDIT_ADERYN_MODE || "docker").toLowerCase();
+  if (["off", "docker", "auto"].includes(mode)) {
+    return mode;
+  }
+  return "docker";
+}
+
+function runCommand(command, args, options = {}) {
   const solcxDir = process.env.SOLCX_BINARY_PATH || path.join(getProjectRoot(), "data", "solcx");
   const mplDir = process.env.MPLCONFIGDIR || path.join(getProjectRoot(), "data", "mpl");
   const cacheDir = process.env.XDG_CACHE_HOME || path.join(getProjectRoot(), "data", "cache");
@@ -210,6 +223,9 @@ function runCommand(command, args) {
   fs.mkdirSync(cacheDir, { recursive: true });
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutTimer;
+    let forceKillTimer;
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
@@ -232,11 +248,39 @@ function runCommand(command, args) {
       stderr += chunk.toString();
     });
 
-    child.on("error", reject);
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutTimer);
+      clearTimeout(forceKillTimer);
+      callback(value);
+    };
+
+    if (options.timeoutMs) {
+      timeoutTimer = setTimeout(() => {
+        const message = `${command} ${args.join(" ")} timed out after ${options.timeoutMs} ms`;
+        child.kill("SIGTERM");
+        forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 2000);
+        finish(reject, new Error(message));
+      }, options.timeoutMs);
+    }
+
+    child.on("error", (error) => finish(reject, error));
     child.on("close", (code) => {
-      resolve({ code, stdout, stderr });
+      finish(resolve, { code, stdout, stderr });
     });
   });
+}
+
+async function withDuration(promise) {
+  const startedAt = Date.now();
+  const result = await promise;
+  return {
+    ...result,
+    durationMs: Date.now() - startedAt
+  };
 }
 
 function collectMythrilIssues(payload) {
@@ -476,8 +520,111 @@ function collectSlitherIssuesFromLogs(logs) {
   });
 }
 
-async function tryRunMythril(command, args, driver, options = {}) {
-  const { code, stdout, stderr } = await runCommand(command, args);
+function firstDefined(...values) {
+  return values.find((value) => typeof value !== "undefined" && value !== null && value !== "");
+}
+
+function isCommandTimeout(error) {
+  return String(error?.message || "").toLowerCase().includes("timed out");
+}
+
+function asIssueArray(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap(asIssueArray);
+  }
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.issues)) {
+      return asIssueArray(value.issues);
+    }
+    if (Array.isArray(value.results)) {
+      return asIssueArray(value.results);
+    }
+    return [value];
+  }
+  return [];
+}
+
+function collectAderynIssues(payload) {
+  const buckets = [
+    ["critical", payload?.critical_issues],
+    ["critical", payload?.criticalIssues],
+    ["high", payload?.high_issues],
+    ["high", payload?.highIssues],
+    ["medium", payload?.medium_issues],
+    ["medium", payload?.mediumIssues],
+    ["low", payload?.low_issues],
+    ["low", payload?.lowIssues],
+    ["info", payload?.informational_issues],
+    ["info", payload?.informationalIssues],
+    ["info", payload?.info_issues],
+    ["info", payload?.infoIssues],
+    ["info", payload?.issues],
+    ["info", payload?.results?.issues]
+  ];
+
+  const rawIssues = buckets.flatMap(([severity, value]) => (
+    asIssueArray(value).map((issue) => ({ severity, issue }))
+  ));
+
+  return rawIssues.map(({ severity, issue }) => {
+    const location = firstDefined(
+      Array.isArray(issue.locations) ? issue.locations[0] : undefined,
+      Array.isArray(issue.instances) ? issue.instances[0] : undefined,
+      issue.location,
+      issue.source,
+      issue.sourceLocation,
+      {}
+    ) || {};
+    const start = location.start || issue.start || {};
+    const title = firstDefined(
+      issue.title,
+      issue.name,
+      issue.detector,
+      issue.detectorName,
+      issue.detector_name,
+      issue.check,
+      issue.issue,
+      "Aderyn finding"
+    );
+
+    return {
+      swcId: "",
+      title,
+      severity: normalizeSeverity(firstDefined(issue.severity, location.severity, severity)),
+      description: firstDefined(
+        issue.description,
+        issue.message,
+        issue.body,
+        issue.markdown,
+        issue.help,
+        issue.detail,
+        ""
+      ),
+      functionName: firstDefined(issue.functionName, issue.function, location.functionName, location.function, ""),
+      pc: null,
+      sourcePath: firstDefined(
+        issue.sourcePath,
+        issue.contractPath,
+        issue.contract_path,
+        issue.path,
+        issue.file,
+        issue.filename,
+        location.sourcePath,
+        location.contractPath,
+        location.contract_path,
+        location.path,
+        location.file,
+        location.filename,
+        ""
+      ),
+      line: Number.isFinite(Number(firstDefined(issue.line, issue.lineNumber, issue.line_no, location.line, location.lineNumber, location.line_no, start.line)))
+        ? Number(firstDefined(issue.line, issue.lineNumber, issue.line_no, location.line, location.lineNumber, location.line_no, start.line))
+        : null
+    };
+  });
+}
+
+function parseMythrilResult(command, code, stdout, stderr, driver, options = {}) {
 
   try {
     const payload = JSON.parse(stdout);
@@ -505,6 +652,33 @@ async function tryRunMythril(command, args, driver, options = {}) {
   }
 }
 
+async function tryRunMythril(command, args, driver, options = {}) {
+  const { code, stdout, stderr } = await runCommand(command, args, {
+    timeoutMs: (DEFAULT_MYTHRIL_TIMEOUT + 15) * 1000
+  });
+  return parseMythrilResult(command, code, stdout, stderr, driver, options);
+}
+
+async function tryRunMythrilDocker(dockerBin, baseArgs, options = {}) {
+  const containerName = `mythril-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const dockerArgs = [
+      "run",
+      "--name",
+      containerName,
+      "--rm",
+      DEFAULT_MYTHRIL_DOCKER_IMAGE,
+      ...baseArgs
+    ];
+    const { code, stdout, stderr } = await runCommand(dockerBin, dockerArgs, {
+      timeoutMs: (DEFAULT_MYTHRIL_TIMEOUT + 15) * 1000
+    });
+    return parseMythrilResult(dockerBin, code, stdout, stderr, "docker", options);
+  } finally {
+    await runCommand(dockerBin, ["rm", "-f", containerName]).catch(() => {});
+  }
+}
+
 function sanitizeRelativePath(input, fallbackName) {
   const candidate = String(input || "").trim() || fallbackName;
   return normalizeSourcePath(candidate, fallbackName);
@@ -523,6 +697,10 @@ function detectPreferredSolcVersion(sourceCode) {
 
   const exactVersion = pragmaMatch[1].match(/(\d+\.\d+\.\d+)/);
   return exactVersion ? exactVersion[1] : "";
+}
+
+function hasSolidityDeclaration(content) {
+  return /\b(contract|library|interface)\s+[A-Za-z_][A-Za-z0-9_]*/.test(String(content || ""));
 }
 
 function materializeSourceBundle(sourceCode, options = {}) {
@@ -568,9 +746,11 @@ function materializeSourceBundle(sourceCode, options = {}) {
   }
 
   const preferredTarget = sanitizeRelativePath(options.primarySourcePath, segments[0].sourcePath);
-  const targetPath = segments.some((item) => item.sourcePath === preferredTarget)
-    ? preferredTarget
-    : segments[0].sourcePath;
+  const preferredSegment = segments.find((item) => item.sourcePath === preferredTarget);
+  const declarationSegment = segments.find((item) => hasSolidityDeclaration(item.content));
+  const targetPath = preferredSegment && hasSolidityDeclaration(preferredSegment.content)
+    ? preferredSegment.sourcePath
+    : declarationSegment?.sourcePath || preferredSegment?.sourcePath || segments[0].sourcePath;
   return {
     bundleDir,
     targetPath
@@ -582,6 +762,15 @@ function removeBundle(bundleDir) {
     return;
   }
   fs.rmSync(bundleDir, { recursive: true, force: true });
+}
+
+async function ensureDockerImageAvailable(dockerBin, image) {
+  const inspected = await runCommand(dockerBin, ["image", "inspect", image], {
+    timeoutMs: 5000
+  });
+  if (inspected.code !== 0) {
+    throw new Error(`${image} is not available locally. Build or pull the analyzer image before enabling this engine.`);
+  }
 }
 
 async function tryRunSlitherDocker(sourceCode, options, dockerBin, image) {
@@ -628,7 +817,9 @@ async function tryRunSlitherDocker(sourceCode, options, dockerBin, image) {
       throw new Error(started.stderr.trim() || started.stdout.trim() || `${dockerBin} start failed`);
     }
 
-    const waited = await runCommand(dockerBin, ["wait", containerName]);
+    const waited = await runCommand(dockerBin, ["wait", containerName], {
+      timeoutMs: DEFAULT_SLITHER_TIMEOUT * 1000
+    });
     const exitCode = Number((waited.stdout || "").trim() || "1");
     const logs = await runCommand(dockerBin, ["logs", containerName]);
     const combinedLogs = `${logs.stdout || ""}\n${logs.stderr || ""}`.trim();
@@ -722,6 +913,9 @@ async function runSlither(options) {
         );
       } catch (error) {
         errors.push(`docker(${dockerBin}): ${error.message}`);
+        if (isCommandTimeout(error)) {
+          break;
+        }
       }
     }
   }
@@ -736,6 +930,154 @@ async function runSlither(options) {
       "engine.unavailable",
       { engine: "Slither", detail: errors[0] || "No runner is available." },
       `Slither could not be executed. ${errors[0] || "No runner is available."}`
+    ),
+    issues: []
+  };
+}
+
+async function tryRunAderynDocker(sourceCode, options, dockerBin, image) {
+  await ensureDockerImageAvailable(dockerBin, image);
+  const { bundleDir } = materializeSourceBundle(sourceCode, options);
+  const outputPath = path.join(bundleDir, "aderyn-report.json");
+  const containerName = `aderyn-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const containerWorkDir = "/tmp/aderyn-work";
+  const containerOutputPath = path.posix.join(containerWorkDir, "aderyn-report.json");
+  const analyzerCommand = [
+    "aderyn",
+    shellEscape(containerWorkDir),
+    "--output",
+    shellEscape(containerOutputPath)
+  ].join(" ");
+
+  try {
+    const createdArgs = [
+      "create",
+      "--name",
+      containerName
+    ];
+    if (DEFAULT_ADERYN_DOCKER_PLATFORM) {
+      createdArgs.push("--platform", DEFAULT_ADERYN_DOCKER_PLATFORM);
+    }
+    createdArgs.push(image, "sh", "-lc", analyzerCommand);
+
+    const created = await runCommand(dockerBin, createdArgs);
+    if (created.code !== 0) {
+      throw new Error(created.stderr.trim() || created.stdout.trim() || `${dockerBin} create failed`);
+    }
+
+    const copiedIn = await runCommand(dockerBin, ["cp", `${bundleDir}/.`, `${containerName}:${containerWorkDir}`]);
+    if (copiedIn.code !== 0) {
+      throw new Error(copiedIn.stderr.trim() || copiedIn.stdout.trim() || `${dockerBin} cp failed`);
+    }
+
+    const started = await runCommand(dockerBin, ["start", containerName]);
+    if (started.code !== 0) {
+      throw new Error(started.stderr.trim() || started.stdout.trim() || `${dockerBin} start failed`);
+    }
+
+    const waited = await runCommand(dockerBin, ["wait", containerName], {
+      timeoutMs: DEFAULT_ADERYN_TIMEOUT * 1000
+    });
+    const exitCode = Number((waited.stdout || "").trim() || "1");
+    const logs = await runCommand(dockerBin, ["logs", containerName]);
+    const combinedLogs = `${logs.stdout || ""}\n${logs.stderr || ""}`.trim();
+
+    const copiedOut = await runCommand(dockerBin, ["cp", `${containerName}:${containerOutputPath}`, outputPath]);
+    if (copiedOut.code !== 0) {
+      throw new Error(
+        copiedOut.stderr.trim()
+        || copiedOut.stdout.trim()
+        || combinedLogs
+        || `${dockerBin} cp report failed`
+      );
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(combinedLogs || "Aderyn did not produce a JSON report.");
+    }
+
+    const payload = JSON.parse(fs.readFileSync(outputPath, "utf8"));
+    if (payload?.success === false && exitCode !== 0) {
+      throw new Error(payload?.error || combinedLogs || `aderyn container exited with code ${exitCode}`);
+    }
+
+    const issues = groupAnalyzerIssues("aderyn", collectAderynIssues(payload));
+    return {
+      engine: "aderyn",
+      title: "Aderyn source analysis",
+      driver: "docker",
+      mode: "source-static",
+      status: "ok",
+      issueCount: issues.length,
+      ...(issues.length > 0
+        ? withSummary("engine.reportedIssues", { engine: "Aderyn", issueCount: issues.length }, `Aderyn reported ${issues.length} issue(s).`)
+        : withSummary("engine.noIssues", { engine: "Aderyn" }, "Aderyn completed without reporting issues.")),
+      issues
+    };
+  } finally {
+    await runCommand(dockerBin, ["rm", "-f", containerName]).catch(() => {});
+    removeBundle(bundleDir);
+  }
+}
+
+async function runAderyn(options) {
+  if (!options.sourceCode) {
+    return {
+      engine: "aderyn",
+      title: "Aderyn source analysis",
+      status: "skipped",
+      mode: "source-static",
+      issueCount: 0,
+      ...withSummary("engine.skippedNoSource", { engine: "Aderyn" }, "Aderyn was skipped because verified source was not available."),
+      issues: []
+    };
+  }
+
+  const mode = resolveAderynMode();
+  if (mode === "off") {
+    return {
+      engine: "aderyn",
+      title: "Aderyn source analysis",
+      status: "disabled",
+      mode: "source-static",
+      issueCount: 0,
+      ...withSummary("engine.disabled", { engine: "Aderyn" }, "Aderyn integration is disabled by AUDIT_ADERYN_MODE=off."),
+      issues: []
+    };
+  }
+
+  const errors = [];
+  if (mode === "docker" || mode === "auto") {
+    for (const dockerBin of getDockerBinaryCandidates()) {
+      try {
+        return await tryRunAderynDocker(
+          options.sourceCode,
+          {
+            contractName: options.contractName || "Contract",
+            primarySourcePath: options.primarySourcePath || ""
+          },
+          dockerBin,
+          process.env.AUDIT_ADERYN_DOCKER_IMAGE || DEFAULT_ADERYN_DOCKER_IMAGE
+        );
+      } catch (error) {
+        errors.push(`docker(${dockerBin}): ${error.message}`);
+        if (isCommandTimeout(error)) {
+          break;
+        }
+      }
+    }
+  }
+
+  return {
+    engine: "aderyn",
+    title: "Aderyn source analysis",
+    status: "unavailable",
+    mode: "source-static",
+    issueCount: 0,
+    ...withSummary(
+      "engine.unavailable",
+      { engine: "Aderyn", detail: errors[0] || "No runner is available." },
+      `Aderyn could not be executed. ${errors[0] || "No runner is available."}`
     ),
     issues: []
   };
@@ -763,6 +1105,26 @@ async function runMythril(address, options) {
       mode: "address-rpc-bytecode",
       issueCount: 0,
       ...withSummary("engine.disabled", { engine: "Mythril" }, "Mythril integration is disabled by AUDIT_MYTHRIL_MODE=off."),
+      issues: []
+    };
+  }
+
+  if (DEFAULT_MYTHRIL_MAX_BYTECODE_BYTES > 0 && Number(options.bytecodeSize || 0) > DEFAULT_MYTHRIL_MAX_BYTECODE_BYTES) {
+    return {
+      engine: "mythril",
+      title: "Mythril bytecode analysis",
+      status: "skipped",
+      mode: "address-rpc-bytecode",
+      issueCount: 0,
+      ...withSummary(
+        "engine.skippedLargeBytecode",
+        {
+          engine: "Mythril",
+          bytecodeSize: options.bytecodeSize,
+          maxBytecodeSize: DEFAULT_MYTHRIL_MAX_BYTECODE_BYTES
+        },
+        `Mythril was skipped because bytecode size ${options.bytecodeSize} exceeds AUDIT_MYTHRIL_MAX_BYTECODE_BYTES=${DEFAULT_MYTHRIL_MAX_BYTECODE_BYTES}.`
+      ),
       issues: []
     };
   }
@@ -797,12 +1159,14 @@ async function runMythril(address, options) {
   }
 
   if (mode === "docker" || mode === "auto") {
-    const dockerArgs = ["run", "--rm", DEFAULT_MYTHRIL_DOCKER_IMAGE, ...baseArgs];
     for (const dockerBin of getDockerBinaryCandidates()) {
       try {
-        return await tryRunMythril(dockerBin, dockerArgs, "docker", options);
+        return await tryRunMythrilDocker(dockerBin, baseArgs, options);
       } catch (error) {
         errors.push(`docker(${dockerBin}): ${error.message}`);
+        if (isCommandTimeout(error)) {
+          break;
+        }
       }
     }
   }
@@ -823,15 +1187,23 @@ async function runMythril(address, options) {
 }
 
 export async function runExternalSourceAnalyses(options = {}) {
-  const slither = await runSlither({
+  const sourceOptions = {
     sourceCode: options.sourceCode || "",
     contractName: options.contractName || "",
     primarySourcePath: options.primarySourcePath || ""
-  });
+  };
+  const [slither, aderyn] = await Promise.all([
+    withDuration(runSlither(sourceOptions)),
+    withDuration(runAderyn(sourceOptions))
+  ]);
 
   return [
     {
       ...slither,
+      chainId: options.chainId || null
+    },
+    {
+      ...aderyn,
       chainId: options.chainId || null
     }
   ];
@@ -845,7 +1217,7 @@ export async function runExternalAddressAnalyses(address, options = {}) {
       primarySourcePath: options.primarySourcePath || "",
       chainId: options.chainId || null
     }),
-    runMythril(address, options)
+    withDuration(runMythril(address, options))
   ]);
 
   return [

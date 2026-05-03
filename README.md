@@ -189,10 +189,10 @@ docker compose up -d smart-contract-audit-db smart-contract-audit-mcp-http smart
 ### Tools
 
 1. `audit_contract_address`
-   根据线上合约地址做组合审计。优先抓取已验证的 Solidity 源码并交给 Slither，随后在配置了 RPC 和外部引擎时追加 Mythril 字节码分析。源码抓取默认按 `Sourcify -> Etherscan V2 -> Blockscout` 顺序回退；发现代理合约时，源码分析和字节码分析都会继续跟踪实现合约，避免目标不一致。`chainId` 可选；不传时会扫描一组常见 EVM 链。
+   根据线上合约地址做组合审计。优先抓取已验证的 Solidity 源码并交给 Slither / Aderyn，随后在配置了 RPC 和外部引擎时追加 Mythril 字节码分析。源码抓取默认按 `Sourcify -> Etherscan V2 -> Blockscout` 顺序回退；发现代理合约时，源码分析和字节码分析都会继续跟踪实现合约，避免目标不一致。`chainId` 可选；不传时会扫描一组常见 EVM 链。
 
 2. `audit_contract_file`
-   读取本地 `.sol` 文件并调用第三方源码分析器（当前主要是 Slither），输出检测结果与建议。
+   读取本地 `.sol` 文件并调用第三方源码分析器（当前默认是 Slither + Aderyn），输出检测结果与建议。
 
 3. `audit_contract_code`
    直接审计传入的 Solidity 代码，适合编辑器内联调用。
@@ -240,7 +240,7 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 
 当前地址审计默认由两层组成：
 
-- 外部源码静态分析：优先接入 Slither（Docker 模式）做 Solidity 语义检测
+- 外部源码静态分析：优先接入 Slither + Aderyn（Docker 模式）做 Solidity 语义检测
 - 外部字节码分析：接入 Mythril，对链上地址经 RPC 做 EVM 字节码分析
 - 统一问题视图：将第三方分析器返回的问题归一化到同一结果结构中展示
 
@@ -258,6 +258,7 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 - `AUDIT_MYTHRIL_BIN=myth`
 - `AUDIT_MYTHRIL_DOCKER_IMAGE=mythril/myth@sha256:49e11758e359d0b410f648df5bbcba28a52e091a78e4772b5c02b9043666b4ff`
 - `AUDIT_MYTHRIL_TIMEOUT=90`
+- `AUDIT_MYTHRIL_MAX_BYTECODE_BYTES=16000`：超过该字节码大小时跳过 Mythril，避免大型合约长时间占用 worker；设为 `0` 可关闭该限制
 
 默认 `auto` 会优先尝试本地 `myth` 命令，再回退到 Docker 镜像。
 
@@ -266,6 +267,7 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 - `AUDIT_SLITHER_MODE=off | docker | auto`
 - `AUDIT_SLITHER_DOCKER_IMAGE=smart-contract-audit-slither:local`
 - `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`
+- `AUDIT_SLITHER_TIMEOUT=90`
 - `AUDIT_SLITHER_ANALYZER_VERSION=0.11.5`：固定 `slither-analyzer` 版本，避免远端和本地结果漂移
 - `AUDIT_SLITHER_SOLC_VERSIONS=0.4.26,0.5.16,0.5.17,0.6.6,0.6.12,0.7.6,0.8.20,0.8.24`：预装 `solc` 版本列表
 - `AUDIT_SLITHER_PIP_INDEX_URL=https://pypi.org/simple`
@@ -273,6 +275,40 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 - `AUDIT_DOCKER_BIN=docker`
 
 项目现在内置了一份可构建的 Slither 镜像定义：`docker/slither/Dockerfile`。推荐先用 compose 构建这份镜像，再启动 HTTP/worker 服务。镜像会预装 `solc-select` 和一组常见 Solidity 编译器版本，并通过 `smart-slither` 根据 `pragma solidity` 优先选择兼容的预装版本，再回退到精确安装。Apple Silicon / ARM 主机默认建议使用 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。
+
+### Aderyn 配置（Docker）
+
+- `AUDIT_ADERYN_MODE=off | docker | auto`
+- `AUDIT_ADERYN_DOCKER_IMAGE=smart-contract-audit-aderyn:local`
+- `AUDIT_ADERYN_DOCKER_PLATFORM=linux/amd64`
+- `AUDIT_ADERYN_VERSION=0.6.8`
+- `AUDIT_ADERYN_TIMEOUT=60`
+
+Aderyn 默认启用，用作轻量源码静态分析器补充 Slither。项目内置镜像定义：`docker/aderyn/Dockerfile`。
+
+### AI Agent 与源码知识库
+
+项目可选接入 LangChain AI agent，对 Slither、Aderyn、Mythril 的结构化结果和 verified source 做二次研判，并把最终报告与源码分片写入 PostgreSQL 知识库。默认 `AUDIT_AI_ENABLED=auto`：配置了 `OPENAI_API_KEY` 或 `AUDIT_AI_API_KEY` 才会调用模型；未配置时审计不会失败，只会返回 `ai.status=disabled`。AI 链路分为源码审计 agent、最终报告汇总 agent、报告翻译 agent；翻译结果会写入 `result.ai.translations`，前端语言切换时会展示对应语言的 AI 报告。
+
+- `AUDIT_AI_ENABLED=auto | off`
+- `AUDIT_AI_MODEL=gpt-4o-mini`
+- `AUDIT_AI_AGENT_MODE=auto | tools | direct`：`tools` 使用 LangChain tool-calling agent；`direct` 使用双阶段 JSON agent，适合 DeepSeek 等不支持 `tool_choice` 的 OpenAI-compatible 模型；`auto` 会对 DeepSeek 默认走 direct
+- `AUDIT_AI_EMBEDDING_MODEL=text-embedding-3-small`
+- `AUDIT_AI_API_KEY=` / `OPENAI_API_KEY=`
+- `AUDIT_AI_BASE_URL=` / `OPENAI_BASE_URL=`：兼容 OpenAI API 的网关地址
+- `AUDIT_AI_TIMEOUT_MS=60000`
+- `AUDIT_AI_CACHE_MODE=readwrite | off`
+- `AUDIT_AI_CACHE_MAX_AGE_DAYS=30`
+- `AUDIT_SOURCE_CHUNK_CHARS=4000`
+- `AUDIT_SOURCE_CHUNK_OVERLAP_CHARS=400`
+
+PostgreSQL 模式下会自动维护：
+
+- `audit_source_contracts`：源码 hash、AI 报告、最近一次完整审计结果
+- `audit_address_sources`：`chainId + address -> source_hash` 映射
+- `audit_source_chunks`：源码分片、embedding JSON、分片元数据
+
+重复审计同一地址且源码 hash 未变化时，会直接返回缓存的完整结果，避免重复跑 analyzer 和 AI。新源码会分片入库；配置 embedding key 后，AI agent 会检索历史相似代码段，作为报告上下文。
 
 ## 内部生产化改造
 
@@ -284,6 +320,7 @@ HTTP API 提交地址后会先入队，再由后台 worker 执行。这样更适
 - 数据库租约领取与 worker 心跳，支持进程重启后的任务恢复
 - 自动重试机制，针对部分可恢复错误重新入队
 - 外部引擎执行超时控制
+- LangChain AI agent 报告汇总和 PostgreSQL 源码知识库缓存
 - 基础结构化日志输出，便于后续接日志平台
 
 当前推荐的内部生产部署方式是 PostgreSQL + HTTP 服务 + 独立 worker。只要 `DATABASE_URL` 或 `AUDIT_DATABASE_URL` 指向同一个 PostgreSQL，HTTP 和 worker 就可以安全拆成多个实例。仓库仍保留本地文件 / SQLite 回退，主要用于无数据库时的本地开发和 `validate` 校验。
@@ -329,7 +366,7 @@ AUDIT_MYTHRIL_DOCKER_IMAGE=ghcr.io/<your-owner>/mythril-myth:latest
 - 可通过 `AUDIT_BLOCKSCOUT_BASE_URLS=1=https://eth.blockscout.com/api/,8453=https://base.blockscout.com/api/` 覆盖或补充 Blockscout API 映射。
 - 可通过 `AUDIT_RPC_URLS=1=https://rpc.example,8453=https://rpc.example` 启用 RPC 槽位读取，用于在浏览器未提供 `Implementation` 字段时继续识别 EIP-1967 / Beacon 代理。
 - 可通过 `AUDIT_MYTHRIL_MODE`、`AUDIT_MYTHRIL_BIN`、`AUDIT_MYTHRIL_DOCKER_IMAGE` 配置外部字节码分析引擎 Mythril。
-- 可通过 `AUDIT_SLITHER_MODE`、`AUDIT_SLITHER_DOCKER_IMAGE` 配置外部源码静态分析引擎 Slither（Docker）。
+- 可通过 `AUDIT_SLITHER_MODE`、`AUDIT_ADERYN_MODE` 配置外部源码静态分析引擎；默认源码侧跑 Slither + Aderyn。
 
 ## VS Code / IDE 接入
 
@@ -423,8 +460,8 @@ curl http://127.0.0.1:3000/healthz
 
 ## 可继续扩展
 
-- 接入 Slither、Foundry、Mythril 等真实审计工具
+- 接入 Slither、Aderyn、Foundry、Mythril 等真实审计工具
 - 增加合约 AST 分析，而不是只做字符串规则检查
 - 为未验证源码的线上合约增加字节码级别检测能力
-- 接入向量数据库，把本地 Markdown 知识库升级为 RAG 检索
-- 接入 OpenAI / Claude 等模型，把 prompts 直接串成完整审计 Agent
+- 增加 pgvector/HNSW 索引，把当前 PostgreSQL embedding JSON 检索升级为数据库内 ANN 检索
+- 接入 Claude 等非 OpenAI 兼容模型供应商

@@ -464,12 +464,14 @@ async function validateProxyAnalysisTargetConsistency() {
   const originalRpcUrls = process.env.AUDIT_RPC_URLS;
   const originalSlitherMode = process.env.AUDIT_SLITHER_MODE;
   const originalMythrilMode = process.env.AUDIT_MYTHRIL_MODE;
+  const originalAderynMode = process.env.AUDIT_ADERYN_MODE;
   const activeExplorerBaseUrl = process.env.AUDIT_ETHERSCAN_BASE_URL || "https://api.etherscan.io/v2/api";
 
   process.env.AUDIT_ETHERSCAN_API_KEY = "test-key";
   process.env.AUDIT_RPC_URLS = "1=https://rpc.example";
   process.env.AUDIT_SLITHER_MODE = "off";
   process.env.AUDIT_MYTHRIL_MODE = "off";
+  process.env.AUDIT_ADERYN_MODE = "off";
 
   globalThis.fetch = async (url, init = {}) => {
     const asString = String(url);
@@ -592,6 +594,11 @@ async function validateProxyAnalysisTargetConsistency() {
       delete process.env.AUDIT_MYTHRIL_MODE;
     } else {
       process.env.AUDIT_MYTHRIL_MODE = originalMythrilMode;
+    }
+    if (typeof originalAderynMode === "undefined") {
+      delete process.env.AUDIT_ADERYN_MODE;
+    } else {
+      process.env.AUDIT_ADERYN_MODE = originalAderynMode;
     }
   }
 }

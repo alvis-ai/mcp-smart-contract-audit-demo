@@ -41,7 +41,7 @@ export AUDIT_DOCKER_BIN=docker
 如果目标地址是代理合约，且浏览器 API 暴露了 `Implementation` 字段，服务会自动转向实现合约源码进行审计，并在响应里保留代理地址与实现地址。
 如果浏览器没有返回 `Implementation`，但配置了 `AUDIT_RPC_URLS`，服务会继续通过 EIP-1967 `implementation` / `beacon` 槽位和 Beacon `implementation()` 调用尝试识别实现合约。
 如果同时配置了 `AUDIT_RPC_URLS` 和 Mythril 运行环境，地址审计还会追加一层基于 RPC 的字节码分析；即使没有源码，也可以返回 `bytecode-only` 结果。
-如果配置 `AUDIT_SLITHER_MODE=docker` 并且容器可访问 Docker（CLI + `/var/run/docker.sock`），地址审计在有源码时还会追加 Slither 静态分析结果。推荐使用项目内置的 `docker/slither/Dockerfile` 预构建可控镜像，而不是直接依赖公共 `trailofbits/slither`。在 ARM 主机上建议显式设置 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64`。为了让远端和本地结果一致，建议同时固定 `AUDIT_SLITHER_ANALYZER_VERSION` 和 `AUDIT_MYTHRIL_DOCKER_IMAGE`，不要继续依赖漂移的 `latest`。
+如果配置 `AUDIT_SLITHER_MODE=docker` / `AUDIT_ADERYN_MODE=docker` 并且容器可访问 Docker（CLI + `/var/run/docker.sock`），地址审计在有源码时还会追加 Slither + Aderyn 静态分析结果。推荐使用项目内置的 `docker/slither/Dockerfile` 和 `docker/aderyn/Dockerfile` 预构建可控镜像。在 ARM 主机上建议显式设置 `AUDIT_SLITHER_DOCKER_PLATFORM=linux/amd64` 和 `AUDIT_ADERYN_DOCKER_PLATFORM=linux/amd64`。为了让远端和本地结果一致，建议同时固定 `AUDIT_SLITHER_ANALYZER_VERSION`、`AUDIT_ADERYN_VERSION` 和 `AUDIT_MYTHRIL_DOCKER_IMAGE`，不要继续依赖漂移的 `latest`。
 
 健康检查：
 
@@ -128,10 +128,14 @@ export AUDIT_JOB_TIMEOUT_MS=180000
 export AUDIT_JOB_LEASE_MS=210000
 export AUDIT_RETRY_DELAY_MS=15000
 export AUDIT_MAX_ATTEMPTS=3
+export AUDIT_MYTHRIL_MAX_BYTECODE_BYTES=16000
+export AUDIT_ADERYN_MODE=docker
+export AUDIT_ADERYN_TIMEOUT=60
+export AUDIT_SLITHER_TIMEOUT=90
 ```
 
 这三项决定后台 worker 的并发数、排队上限和单任务超时时间。
-后面三项分别控制租约时长、失败重试间隔和最大重试次数。
+后面几项分别控制租约时长、失败重试间隔、最大重试次数、大型字节码 Mythril 跳过阈值、Aderyn 开关和分析器超时。
 
 ## 4. Render 部署
 

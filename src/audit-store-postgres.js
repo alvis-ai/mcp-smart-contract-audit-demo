@@ -32,6 +32,20 @@ function stripLargeFields(result) {
   };
 }
 
+function parseJson(value) {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "object") {
+    return value;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 function mapAuditJob(row) {
   if (!row) {
     return null;
@@ -62,6 +76,7 @@ function mapAuditJob(row) {
     workerId: row.worker_id,
     leaseUntil: toIso(row.lease_until),
     lastHeartbeatAt: toIso(row.last_heartbeat_at),
+    progress: parseJson(row.progress_json) || null,
     result: normalizedResult
   };
 }
@@ -146,7 +161,8 @@ async function ensureInitialized() {
           next_attempt_at TIMESTAMPTZ,
           worker_id TEXT,
           lease_until TIMESTAMPTZ,
-          last_heartbeat_at TIMESTAMPTZ
+          last_heartbeat_at TIMESTAMPTZ,
+          progress_json JSONB
         );
         CREATE TABLE IF NOT EXISTS audit_workers (
           worker_id TEXT PRIMARY KEY,
@@ -165,6 +181,7 @@ async function ensureInitialized() {
       `);
 
       await migrateLegacyJsonAuditHistory(client);
+      await client.query("ALTER TABLE audit_jobs ADD COLUMN IF NOT EXISTS progress_json JSONB");
     });
   }
 
@@ -376,6 +393,7 @@ export async function claimNextQueuedJob(workerId, leaseMs) {
             worker_id = $1,
             lease_until = $2,
             last_heartbeat_at = NOW(),
+            progress_json = NULL,
             attempts = attempts + 1
         WHERE id = $3
           AND status = 'queued'
@@ -405,6 +423,19 @@ export async function heartbeatRunningJob(id, workerId, leaseMs) {
   });
 }
 
+export async function updateAuditJobProgress(id, workerId, progress) {
+  await ensureInitialized();
+  await withPgClient(async (client) => {
+    await client.query(`
+      UPDATE audit_jobs
+      SET progress_json = $3::jsonb,
+          updated_at = NOW(),
+          last_heartbeat_at = NOW()
+      WHERE id = $1 AND worker_id = $2 AND status = 'running'
+    `, [id, workerId, JSON.stringify(progress || null)]);
+  });
+}
+
 export async function markAuditJobSucceeded(id, workerId, result) {
   await ensureInitialized();
   const normalized = stripLargeFields(result);
@@ -415,6 +446,7 @@ export async function markAuditJobSucceeded(id, workerId, result) {
           summary = $3,
           analysis_mode = $4,
           result_json = $5::jsonb,
+          progress_json = NULL,
           error_message = NULL,
           updated_at = NOW(),
           finished_at = NOW(),
@@ -448,8 +480,9 @@ export async function requeueAuditJob(id, workerId, errorMessage, delayMs = 0) {
           finished_at = NULL,
           worker_id = NULL,
           lease_until = NULL,
-          last_heartbeat_at = NULL,
-          next_attempt_at = $4
+        last_heartbeat_at = NULL,
+        progress_json = NULL,
+        next_attempt_at = $4
       WHERE id = $1 AND worker_id = $2
       RETURNING *
     `, [id, workerId, errorMessage, nextAttemptAt]);
@@ -468,9 +501,10 @@ export async function markAuditJobFailed(id, workerId, errorMessage, status = "f
           error_message = $5,
           updated_at = NOW(),
           finished_at = NOW(),
-          worker_id = $2,
-          lease_until = NULL,
-          last_heartbeat_at = NOW()
+        worker_id = $2,
+        lease_until = NULL,
+        last_heartbeat_at = NOW(),
+        progress_json = NULL
       WHERE id = $1 AND worker_id = $2
       RETURNING *
     `, [

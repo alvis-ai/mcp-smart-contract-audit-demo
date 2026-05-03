@@ -10,6 +10,12 @@ import {
   runExternalAddressAnalyses,
   runExternalSourceAnalyses
 } from "./external-analyzers.js";
+import { buildAiAuditIntelligence } from "./ai-audit-agent.js";
+import {
+  computeSourceHash,
+  getCachedAddressAnalysis,
+  upsertAuditKnowledge
+} from "./audit-knowledge-store.js";
 
 // Domain auto-detection is best-effort only. It exists to choose a more useful
 // checklist / finding context when the caller does not provide a contractType.
@@ -261,6 +267,30 @@ function getFindingGuidance(issue) {
   };
 }
 
+function getFindingRecommendation(issue) {
+  const key = String(issue?.title || "").trim().toLowerCase();
+  const description = String(issue?.description || "").trim();
+  const recommendations = [
+    [/reentrancy/, "按 checks-effects-interactions 重排逻辑：先更新余额/状态，再执行外部调用；对仍需外部调用的路径增加 ReentrancyGuard，并补充重入测试。"],
+    [/constable-states|immutable-states/, "如果该值部署后不会改变，将状态变量改为 constant 或 immutable；如果保留可变，需要明确变更入口和权限。"],
+    [/solc-version/, "固定并升级到当前项目支持的安全编译器版本，重新编译后运行回归测试，确认字节码和部署流程符合预期。"],
+    [/low-level-calls|unchecked-lowlevel/, "确认低级调用目标可信、返回值被检查，并在失败时 revert；若可行，优先改用类型化接口调用。"],
+    [/assembly/, "逐段复核 assembly 的内存、返回值和 revert 处理；只有在高级 Solidity 无法表达或 gas 收益明确时保留。"],
+    [/naming-convention/, "统一命名到 Solidity 社区约定，尤其是 public API、事件、常量和状态变量，降低集成和审计误读成本。"],
+    [/unused-return|unchecked.*return/, "显式消费返回值并对失败路径 revert；若返回值确实无业务意义，用注释说明原因。"],
+    [/timestamp/, "避免把 block.timestamp 用作安全关键判断或随机源；如果必须依赖时间，明确可容忍窗口并添加边界测试。"],
+    [/tx-origin/, "改用 msg.sender 或角色权限系统做鉴权，避免通过中间合约诱导授权用户触发敏感操作。"]
+  ];
+  const matched = recommendations.find(([pattern]) => pattern.test(key));
+  if (matched) {
+    return matched[1];
+  }
+  if (description) {
+    return "结合上述命中位置复核真实调用路径，确认是否可利用；若确认有效，按具体根因修复并补充覆盖该路径的测试。";
+  }
+  return "检查命中的代码路径，确认触发条件与影响范围，再针对根因修复并补充测试。";
+}
+
 function collectDetectedFindings(externalAnalyses) {
   return externalAnalyses.flatMap((analysis) => (analysis.issues || []).map((issue, index) => ({
     id: `${analysis.engine || "engine"}-${issue.swcId || issue.title || "issue"}-${issue.functionName || issue.sourcePath || issue.pc || index}`,
@@ -268,7 +298,7 @@ function collectDetectedFindings(externalAnalyses) {
     category: classifyFindingCategory(issue),
     title: issue.title || "Unnamed issue",
     rationale: issue.description || analysis.summary || "The external analyzer reported this issue without additional detail.",
-    recommendation: "Review the affected path, confirm exploitability manually, and patch the underlying contract logic before deployment.",
+    recommendation: getFindingRecommendation(issue),
     ...getFindingGuidance(issue),
     engine: analysis.engine || "engine",
     engineTitle: analysis.title || analysis.engine || "External analysis",
@@ -293,7 +323,7 @@ function makeSummary(contractType, findings, externalAnalyses, analysisMode, sou
     return buildSummary(
       "audit.noEngine",
       { contractType, analysisMode },
-      `${contractType} contract analysis could not run any third-party engine in ${analysisMode} mode. Check Slither/Mythril configuration before trusting the result.`
+      `${contractType} contract analysis could not run any third-party engine in ${analysisMode} mode. Check Slither/Aderyn/Mythril configuration before trusting the result.`
     );
   }
 
@@ -330,7 +360,7 @@ export async function auditCode(code, options = {}) {
   const findings = collectDetectedFindings(externalAnalyses);
   const summary = makeSummary(contractType, findings, externalAnalyses, "source-static", true);
 
-  return {
+  const result = {
     contractType,
     summary: summary.summary,
     summaryCode: summary.summaryKey,
@@ -340,6 +370,30 @@ export async function auditCode(code, options = {}) {
     analysisMode: "source-static",
     hasVerifiedSource: true
   };
+
+  try {
+    const intelligence = await buildAiAuditIntelligence({
+      auditResult: result,
+      sourceCode: code,
+      sourceContract: {
+        code,
+        contractName: options.contractName || "",
+        primarySourcePath: options.primarySourcePath || ""
+      }
+    });
+    return {
+      ...result,
+      ai: intelligence.ai
+    };
+  } catch (error) {
+    return {
+      ...result,
+      ai: {
+        status: "unavailable",
+        errorMessage: error.message
+      }
+    };
+  }
 }
 
 export function normalizeAuditResult(result, auditMeta = {}) {
@@ -406,12 +460,36 @@ export async function auditAddress(address, options = {}) {
   // 2. deployed bytecode + optional bytecode analyzers such as Mythril
   let sourceContract = null;
   let sourceError = "";
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : async () => {};
 
   try {
+    await onProgress({ stage: "source_fetch", status: "running", detail: "Fetching verified source from Sourcify/Etherscan/Blockscout." });
     sourceContract = await fetchVerifiedContractSource(address, options);
+    await onProgress({
+      stage: "source_fetch",
+      status: "completed",
+      detail: sourceContract?.sourceRepository
+        ? `Verified source loaded from ${sourceContract.sourceRepository}.`
+        : "Verified source loaded."
+    });
   } catch (error) {
     sourceError = error.message;
+    await onProgress({ stage: "source_fetch", status: "failed", detail: error.message });
   }
+
+  await onProgress({ stage: "cache_check", status: "running", detail: "Checking address/source cache." });
+  if (sourceContract?.code && !options.skipCache) {
+    const cached = await getCachedAddressAnalysis({
+      address,
+      chainId: sourceContract.chainId || options.chainId,
+      sourceHash: computeSourceHash(sourceContract.code)
+    });
+    if (cached) {
+      await onProgress({ stage: "cache_check", status: "completed", detail: "Cache hit. Reusing previous analysis." });
+      return cached;
+    }
+  }
+  await onProgress({ stage: "cache_check", status: "completed", detail: "Cache miss. Running analyzers." });
 
   let bytecodeContract = null;
   let bytecodeError = "";
@@ -419,19 +497,35 @@ export async function auditAddress(address, options = {}) {
   const analysisAddress = sourceContract?.sourceAddress || sourceContract?.implementationAddress || address;
 
   try {
+    await onProgress({ stage: "bytecode_fetch", status: "running", detail: "Reading deployed bytecode over RPC." });
     bytecodeContract = await fetchDeployedBytecode(analysisAddress, { chainId: preferredChainId });
+    await onProgress({
+      stage: "bytecode_fetch",
+      status: "completed",
+      detail: `Loaded ${bytecodeContract?.bytecodeSize || 0} bytecode bytes.`
+    });
   } catch (error) {
     bytecodeError = error.message;
+    await onProgress({ stage: "bytecode_fetch", status: "failed", detail: error.message });
   }
 
   const resolvedChainId = sourceContract?.chainId || bytecodeContract?.chainId || null;
   const resolvedRpcUrl = bytecodeContract?.rpcUrl || null;
+  await onProgress({ stage: "tool_analysis", status: "running", detail: "Running Slither, Aderyn and configured bytecode analyzers." });
   const externalAnalyses = await runExternalAddressAnalyses(analysisAddress, {
     chainId: resolvedChainId,
     rpcUrl: resolvedRpcUrl,
+    bytecodeSize: bytecodeContract?.bytecodeSize || 0,
     sourceCode: sourceContract?.code || "",
     contractName: sourceContract?.contractName || "",
     primarySourcePath: sourceContract?.primarySourcePath || ""
+  });
+  await onProgress({
+    stage: "tool_analysis",
+    status: "completed",
+    detail: externalAnalyses
+      .map((analysis) => `${analysis.engine}: ${analysis.status}${analysis.durationMs != null ? ` (${analysis.durationMs}ms)` : ""}`)
+      .join(", ")
   });
 
   if (!sourceContract && !bytecodeContract && externalAnalyses.every((analysis) => analysis.status !== "ok")) {
@@ -454,7 +548,7 @@ export async function auditAddress(address, options = {}) {
     Boolean(sourceContract)
   );
 
-  return {
+  let result = {
     ...(sourceContract || {
       address,
       chainId: bytecodeContract?.chainId || null,
@@ -482,6 +576,61 @@ export async function auditAddress(address, options = {}) {
     summaryCode: summary.summaryKey,
     summaryParams: summary.summaryParams
   };
+
+  let intelligence = null;
+  if (sourceContract?.code) {
+    try {
+      intelligence = await buildAiAuditIntelligence({
+        auditResult: result,
+        sourceCode: sourceContract.code,
+        sourceContract,
+        onProgress
+      });
+      result = {
+        ...result,
+        ai: intelligence.ai,
+        cache: {
+          status: "miss",
+          sourceHash: computeSourceHash(sourceContract.code)
+        }
+      };
+    } catch (error) {
+      await onProgress({ stage: "ai_source_review", status: "failed", detail: error.message });
+      await onProgress({ stage: "ai_final_report", status: "failed", detail: error.message });
+      await onProgress({ stage: "ai_translation", status: "skipped", detail: "AI report was not generated." });
+      result = {
+        ...result,
+        ai: {
+          status: "unavailable",
+          errorMessage: error.message
+        },
+        cache: {
+          status: "miss",
+          sourceHash: computeSourceHash(sourceContract.code)
+        }
+      };
+    }
+
+    await onProgress({ stage: "knowledge_store", status: "running", detail: "Writing source chunks and AI report cache." });
+    await upsertAuditKnowledge({
+      address,
+      chainId: resolvedChainId,
+      sourceContract,
+      bytecodeContract,
+      result,
+      aiReport: result.ai?.status === "ok" ? result.ai : null,
+      chunks: intelligence?.chunks || [],
+      embeddings: intelligence?.embeddings || []
+    })
+      .then((storeResult) => onProgress({
+        stage: "knowledge_store",
+        status: "completed",
+        detail: storeResult?.status ? `Knowledge store ${storeResult.status}.` : "Knowledge store updated."
+      }))
+      .catch((error) => onProgress({ stage: "knowledge_store", status: "failed", detail: error.message }));
+  }
+
+  return result;
 }
 
 export function generateChecklist(projectType) {

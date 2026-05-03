@@ -13,6 +13,7 @@ import {
   registerWorker,
   requeueAuditJob,
   repairExpiredJobLeases,
+  updateAuditJobProgress,
   unregisterWorker
 } from "./audit-store.js";
 
@@ -68,6 +69,65 @@ function isRetryableError(error) {
   ].some((fragment) => message.includes(fragment));
 }
 
+function createProgressTracker(job, workerId) {
+  const startedAt = new Date().toISOString();
+  const stages = new Map();
+  const stageOrder = [
+    "source_fetch",
+    "cache_check",
+    "bytecode_fetch",
+    "tool_analysis",
+    "ai_source_review",
+    "ai_final_report",
+    "ai_translation",
+    "knowledge_store"
+  ];
+
+  const snapshot = (currentStage = "") => ({
+    currentStage,
+    startedAt,
+    updatedAt: new Date().toISOString(),
+    stages: stageOrder
+      .filter((id) => stages.has(id))
+      .map((id) => stages.get(id))
+  });
+
+  return async function onProgress(event = {}) {
+    const id = event.stage;
+    if (!id) {
+      return;
+    }
+    const now = new Date();
+    const previous = stages.get(id) || {
+      id,
+      status: "pending",
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      detail: ""
+    };
+    const next = {
+      ...previous,
+      status: event.status || previous.status,
+      detail: event.detail || previous.detail || ""
+    };
+    if (event.status === "running" && !next.startedAt) {
+      next.startedAt = now.toISOString();
+    }
+    if (["completed", "failed", "skipped"].includes(event.status)) {
+      next.finishedAt = now.toISOString();
+      if (next.startedAt) {
+        next.durationMs = now.getTime() - new Date(next.startedAt).getTime();
+      }
+    }
+    if (event.durationMs != null) {
+      next.durationMs = event.durationMs;
+    }
+    stages.set(id, next);
+    await updateAuditJobProgress(job.id, workerId, snapshot(id)).catch(() => {});
+  };
+}
+
 export async function enqueueAddressAuditJob(payload) {
   if ((await countActiveAuditJobs()) >= MAX_PENDING_JOBS) {
     throw new Error(`Audit queue is full (${MAX_PENDING_JOBS} active jobs). Try again later.`);
@@ -86,6 +146,8 @@ export async function getAuditQueueStats() {
 }
 
 async function processJob(workerId, job) {
+  const startedAt = Date.now();
+  const onProgress = createProgressTracker(job, workerId);
   logEvent("job_started", {
     jobId: job.id,
     target: job.target,
@@ -94,15 +156,25 @@ async function processJob(workerId, job) {
   });
 
   try {
+    await onProgress({ stage: "source_fetch", status: "running", detail: "Starting verified source resolution." });
     const result = await withTimeout(auditAddress(job.target, {
       chainId: job.chainId ?? undefined,
-      contractType: job.contractType ?? undefined
+      contractType: job.contractType ?? undefined,
+      onProgress
     }), JOB_TIMEOUT_MS);
     await markAuditJobSucceeded(job.id, workerId, result);
     logEvent("job_succeeded", {
       jobId: job.id,
       target: job.target,
-      analysisMode: result.analysisMode || null
+      analysisMode: result.analysisMode || null,
+      cache: result.cache?.status || "none",
+      ai: result.ai?.status || "none",
+      durationMs: Date.now() - startedAt,
+      analyzers: (result.externalAnalyses || []).map((analysis) => ({
+        engine: analysis.engine || "engine",
+        status: analysis.status || "",
+        durationMs: analysis.durationMs ?? null
+      }))
     });
   } catch (error) {
     const canRetry = isRetryableError(error) && Number(job.attempts || 0) < Number(job.maxAttempts || 1);
@@ -114,6 +186,7 @@ async function processJob(workerId, job) {
         target: job.target,
         attempts: job.attempts,
         retryDelayMs: delayMs,
+        durationMs: Date.now() - startedAt,
         error: error.message
       });
       return;
@@ -125,6 +198,7 @@ async function processJob(workerId, job) {
       jobId: job.id,
       target: job.target,
       status,
+      durationMs: Date.now() - startedAt,
       error: error.message
     });
   }

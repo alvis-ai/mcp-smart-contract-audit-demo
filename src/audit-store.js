@@ -58,6 +58,10 @@ export async function heartbeatRunningJob(id, workerId, leaseMs) {
   return getStore().heartbeatRunningJob(id, workerId, leaseMs);
 }
 
+export async function updateAuditJobProgress(id, workerId, progress) {
+  return getStore().updateAuditJobProgress(id, workerId, progress);
+}
+
 export async function markAuditJobSucceeded(id, workerId, result) {
   return getStore().markAuditJobSucceeded(id, workerId, result);
 }
