@@ -40,7 +40,7 @@ services:
     image: smart-contract-audit-mcp:local
     command: ["node", "src/sdk-http-server.js"]
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     env_file:
       - .env
     environment:

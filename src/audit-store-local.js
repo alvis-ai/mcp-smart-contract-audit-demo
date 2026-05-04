@@ -162,6 +162,35 @@ function migrateLegacyJsonAuditHistory(db) {
   db.exec("PRAGMA user_version = 2");
 }
 
+function mapAuditJobSummary(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    inputType: row.input_type,
+    target: row.target,
+    chainId: row.chain_id,
+    contractType: row.contract_type,
+    status: row.status,
+    summary: row.summary,
+    analysisMode: row.analysis_mode,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    attempts: row.attempts,
+    maxAttempts: row.max_attempts,
+    nextAttemptAt: row.next_attempt_at,
+    workerId: row.worker_id,
+    leaseUntil: row.lease_until,
+    lastHeartbeatAt: row.last_heartbeat_at,
+    progress: parseJson(row.progress_json) || null
+  };
+}
+
 function mapAuditJob(row) {
   if (!row) {
     return null;
@@ -259,11 +288,17 @@ export function createAuditJob(payload) {
 export function listAuditRuns(options = {}) {
   const db = getDatabase();
   const limit = Math.max(1, Number(options.limit || DEFAULT_LIST_LIMIT));
+  const includeResult = options.includeResult !== false;
   return db.prepare(`
-    SELECT * FROM audit_jobs
+    SELECT ${includeResult ? "*" : `
+      id, input_type, target, chain_id, contract_type, status,
+      summary, analysis_mode, error_message, created_at, updated_at,
+      started_at, finished_at, attempts, max_attempts, next_attempt_at,
+      worker_id, lease_until, last_heartbeat_at, progress_json
+    `} FROM audit_jobs
     ORDER BY datetime(created_at) DESC
     LIMIT ?
-  `).all(limit).map(mapAuditJob);
+  `).all(limit).map(includeResult ? mapAuditJob : mapAuditJobSummary);
 }
 
 export function getAuditRun(id) {

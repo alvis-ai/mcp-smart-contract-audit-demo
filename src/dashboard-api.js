@@ -26,7 +26,7 @@ export function createDashboardRouter() {
 
   router.get("/audits", async (_req, res) => {
     res.json({
-      audits: await listAuditRuns(),
+      audits: await listAuditRuns({ includeResult: false }),
       queue: await getAuditQueueStats()
     });
   });

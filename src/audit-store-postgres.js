@@ -46,6 +46,35 @@ function parseJson(value) {
   }
 }
 
+function mapAuditJobSummary(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    inputType: row.input_type,
+    target: row.target,
+    chainId: row.chain_id,
+    contractType: row.contract_type,
+    status: row.status,
+    summary: row.summary,
+    analysisMode: row.analysis_mode,
+    errorMessage: row.error_message,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    startedAt: toIso(row.started_at),
+    finishedAt: toIso(row.finished_at),
+    attempts: Number(row.attempts || 0),
+    maxAttempts: Number(row.max_attempts || DEFAULT_MAX_ATTEMPTS),
+    nextAttemptAt: toIso(row.next_attempt_at),
+    workerId: row.worker_id,
+    leaseUntil: toIso(row.lease_until),
+    lastHeartbeatAt: toIso(row.last_heartbeat_at),
+    progress: parseJson(row.progress_json) || null
+  };
+}
+
 function mapAuditJob(row) {
   if (!row) {
     return null;
@@ -219,14 +248,20 @@ export async function createAuditJob(payload) {
 export async function listAuditRuns(options = {}) {
   await ensureInitialized();
   const limit = Math.max(1, Number(options.limit || DEFAULT_LIST_LIMIT));
+  const includeResult = options.includeResult !== false;
   return withPgClient(async (client) => {
     const result = await client.query(`
-      SELECT *
+      SELECT ${includeResult ? "*" : `
+        id, input_type, target, chain_id, contract_type, status,
+        summary, analysis_mode, error_message, created_at, updated_at,
+        started_at, finished_at, attempts, max_attempts, next_attempt_at,
+        worker_id, lease_until, last_heartbeat_at, progress_json
+      `}
       FROM audit_jobs
       ORDER BY created_at DESC
       LIMIT $1
     `, [limit]);
-    return result.rows.map(mapAuditJob);
+    return result.rows.map(includeResult ? mapAuditJob : mapAuditJobSummary);
   });
 }
 

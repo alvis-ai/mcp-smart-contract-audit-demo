@@ -367,6 +367,7 @@ const state = {
   locale: resolveInitialLocale(),
   audits: [],
   selectedAuditId: "",
+  selectedAuditLoadingId: "",
   pollTimer: null
 };
 
@@ -910,6 +911,7 @@ function renderAuditList() {
       state.selectedAuditId = audit.id;
       renderAuditList();
       renderSelectedAudit();
+      ensureSelectedAuditDetail(audit.id);
     });
     auditList.appendChild(button);
   }
@@ -1256,6 +1258,14 @@ function renderSelectedAudit() {
   resultView.className = "result-view";
   resultView.innerHTML = "";
 
+  if (audit.status === "succeeded" && !audit.result) {
+    const isLoading = state.selectedAuditLoadingId === audit.id;
+    resultView.className = "result-view empty-state";
+    resultView.textContent = isLoading ? t("result.loadingTitleRunning") : t("result.empty");
+    ensureSelectedAuditDetail(audit.id);
+    return;
+  }
+
   if (!isTerminalStatus(audit.status)) {
     const isRunning = String(audit.status || "").toLowerCase() === "running";
     resultView.innerHTML = `
@@ -1317,15 +1327,54 @@ function renderSelectedAudit() {
   resultView.appendChild(raw);
 }
 
+function mergeAuditSummaries(audits) {
+  const previous = new Map(state.audits.map((audit) => [audit.id, audit]));
+  return audits.map((audit) => {
+    const existing = previous.get(audit.id);
+    if (!existing?.result) {
+      return audit;
+    }
+    return {
+      ...audit,
+      result: existing.result
+    };
+  });
+}
+
+async function ensureSelectedAuditDetail(id) {
+  if (!id || state.selectedAuditLoadingId === id) {
+    return;
+  }
+
+  state.selectedAuditLoadingId = id;
+  try {
+    const detail = await api(`/api/audits/${encodeURIComponent(id)}`);
+    state.audits = state.audits.map((audit) => audit.id === id ? {
+      ...audit,
+      ...detail
+    } : audit);
+    renderAuditList();
+    renderSelectedAudit();
+  } catch (error) {
+    resultView.className = "result-view empty-state";
+    resultView.textContent = t("result.loadingFailed", { message: error.message });
+  } finally {
+    if (state.selectedAuditLoadingId === id) {
+      state.selectedAuditLoadingId = "";
+    }
+  }
+}
+
 async function loadAudits() {
   const payload = await api("/api/audits");
-  state.audits = payload.audits || [];
+  state.audits = mergeAuditSummaries(payload.audits || []);
   const selectedAudit = state.audits.find((audit) => audit.id === state.selectedAuditId);
   if (!selectedAudit && state.audits.length > 0) {
     state.selectedAuditId = state.audits[0].id;
   }
   renderAuditList();
   renderSelectedAudit();
+  ensureSelectedAuditDetail(state.selectedAuditId);
   schedulePolling();
 }
 
