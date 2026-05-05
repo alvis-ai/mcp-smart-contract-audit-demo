@@ -1315,16 +1315,6 @@ function renderSelectedAudit() {
     resultView.appendChild(proxy);
   }
 
-  renderFindingsSection(resultView, audit);
-  appendEngineResults(resultView, audit);
-
-  const raw = document.createElement("details");
-  raw.className = "raw-box";
-  raw.innerHTML = `
-    <summary>${escapeHtml(t("result.raw"))}</summary>
-    <pre>${escapeHtml(JSON.stringify(audit, null, 2))}</pre>
-  `;
-  resultView.appendChild(raw);
 }
 
 function mergeAuditSummaries(audits) {
